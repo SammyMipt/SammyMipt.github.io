@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Обтекание цилиндра: от симметричного течения до дорожки Кармана</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-08/">&larr; Неделя 08</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=obtekanie"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Шаг «Сравним инерцию с вязкостью» (блок chislo-rejnoldsa; бриф
+   briefs/proizvodstvo08.md, исполнитель 3; карточка 5 описи
+   lekciya08_demki_minuty.md §1.4; рамка §6, демка 5). Перенос демки автора
+   из Марабу (marabu-2026/demos/obtekanie.html): решатель тот же, кромки,
+   подписи и показания переделаны.
+
+   ЧТО СЧИТАЕТСЯ. Поток жидкости набегает слева на круглое тело. Круг на
+   плоскости есть цилиндр поперёк потока, а не шар. Решатель — решёточные
+   уравнения Больцмана D2Q9 с одним временем релаксации τ: на каждой клетке
+   девять долей жидкости, которые сталкиваются (тянутся к равновесию) и
+   переносятся к соседям. Плотность и скорость клетки суть сумма долей и
+   их импульс. В пределе малых скоростей эта схема даёт уравнение
+   Навье–Стокса с вязкостью ν = (τ − 1/2)/3 в единицах решётки. Картинку
+   никто не рисует: и стоячие вихри, и их срыв получаются из счёта.
+
+   ЧИСЛО РЕЙНОЛЬДСА по диаметру, Re = U D/ν, как в главе: U = 0,07 клетки
+   за шаг, D = 16 клеток. Ползунок задаёт Re, из него τ = 3UD/Re + 1/2.
+   Ниже τ = 0,515 схема теряет устойчивость, поэтому Re не больше 224;
+   действующее Re печатается. Число Маха U√3 = 0,12: сжимаемость вносит
+   порядка Ma² ≈ 1,5 %, жидкость можно считать несжимаемой.
+
+   КРОМКИ. Сверху и снизу кромки периодические: что уходит вниз, приходит
+   сверху. Это значит, что выше и ниже тела через NY = 80 клеток, то есть
+   через пять диаметров, стоят такие же цилиндры. У Марабу индекс строки
+   при переносе прижимался к краю, и такие кромки раскачивали след сами:
+   при Re = 20 размах поперечной скорости за телом вырастал до 0,24 U, хотя
+   у одиночного цилиндра след при Re = 20 стоит. С периодическими кромками
+   (две строки ниже, в переносе) он стоит. Вход слева держит набегающий
+   поток, справа жидкость выпускается. Тело — полное отражение долей
+   назад, то есть прилипание.
+
+   ТОЛЧОК. Идеально симметричное течение могло бы не сорваться долго, и
+   после сброса за телом 220 шагов держится слабая поперечная скорость, а
+   дальше течение выбирает само. Толчок одинаков при любом Re; при малых Re
+   он гаснет, при больших раскачивает срыв.
+
+   РЕЖИМ СНИМАЕТСЯ С ТЕЧЕНИЯ, порогов ползунка в коде нет. Датчик стоит на
+   оси в четырёх радиусах за центром тела и пишет поперечную скорость
+   каждый шаг. Размах за последние 2000 шагов против размаха 2000 шагов до
+   того: меньше 0,01 U — течение стоит; больше, но падает — колебания
+   затухают; держится или растёт — вихри срываются. Период срыва по
+   переходам сигнала через среднее за последние 6000 шагов, число
+   Струхаля St = D/(T U). Зона возврата — участок оси за телом, где
+   жидкость идёт назад (средняя по двум строкам у оси скорость ux < 0),
+   до нуля с линейной вставкой, в диаметрах от кормы.
+
+   ГДЕ КАРТИНКА ГРУБА. При Re около единицы возмущение от тела доходит до
+   входа (он в 3,4 диаметра перед телом) и до соседних цилиндров, и поле
+   завихрённости у входа показывает это. Картина там качественная:
+   симметрия спереди и сзади видна, числа для одиночного тела нет.
+
+   ПРОВЕРКА (15.10, node по этому же коду и hcheck на порту 49934; отчёт
+   briefs/proizvodstvo08_demki3_REPORT.md). Re = 20: течение стоит, размах
+   падает до 6·10⁻⁷ U, зона возврата 0,85 D (у одиночного цилиндра около
+   0,9 по справочным данным, здесь соседи через пять диаметров). Те же
+   Re = 20 с кромками Марабу: размах растёт до 0,25 U к 16 000 шагов, и
+   демка честно назвала бы это срывом; это отрицательный контроль кромок.
+   Re = 1 и 5: зоны возврата нет; Re = 8: 0,10 D. Re = 45: колебания гаснут
+   (0,0095 → 0,005 за 8000 шагов). Re = 50: срыв, размах 0,10, St = 0,168.
+   Re = 100: St = 0,197, размах 0,73. Re = 224: St = 0,222, размах 1,06.
+   Порог срыва около 49 (опись, квадрат размаха линеен по Re); у одиночного
+   цилиндра в безграничном потоке около 47. */
+
+/* ── чистая физика ──────────────────────────────────────────────
+   Отсюда до пометки «конец чистой физики» код не знает о браузере и
+   прогоняется в node. */
+
+var NX = 320, NY = 80;
+/* Центр тела смещён на полклетки: на идеально симметричной сетке
+   неустойчивости не за что зацепиться. */
+var CYL = { x: 62, y: 40.5, r: 8 };
+var D = 2 * CYL.r;
+var U0 = 0.07;                       /* набегающий поток, клеток за шаг */
+var TAU_MIN = 0.515, TAU_MAX = 12;
+
+var EX = [0, 1, 0, -1, 0, 1, -1, -1, 1];
+var EY = [0, 0, 1, 0, -1, 1, 1, -1, -1];
+var WT = [4/9, 1/9, 1/9, 1/9, 1/9, 1/36, 1/36, 1/36, 1/36];
+var OPP = [0, 3, 4, 1, 2, 7, 8, 5, 6];
+
+var N = NX * NY;
+var f = [], ft = [];
+for (var q = 0; q < 9; q++) { f.push(new Float32Array(N)); ft.push(new Float32Array(N)); }
+var solid = new Uint8Array(N);
+var rhoA = new Float32Array(N), uxA = new Float32Array(N), uyA = new Float32Array(N);
+var SCRATCH = new Float32Array(9);
+
+for (var y = 0; y < NY; y++) for (var x = 0; x < NX; x++) {
+  var dx = x - CYL.x, dy = y - CYL.y;
+  if (dx * dx + dy * dy <= CYL.r * CYL.r) solid[x + y * NX] = 1;
+}
+
+/* Датчик: на оси в четырёх радиусах за центром тела. Строка 40 лежит в
+   полуклетке от оси, в стоячем течении поперечная скорость там мала и
+   постоянна, размах её равен нулю. */
+var PROBE = (CYL.x + 4 * CYL.r) + (CYL.y | 0) * NX;
+var YAX = CYL.y | 0;                  /* строки 40 и 41 по обе стороны оси */
+
+var M = {
+  periodic: true,                     /* false — кромки Марабу, только для отрицательного контроля */
+  kick: 0, steps: 0,
+  JN: 8192, jur: new Float32Array(8192), count: 0
+};
+
+function feq(q, rho, ux, uy){
+  var eu = EX[q] * ux + EY[q] * uy, u2 = ux * ux + uy * uy;
+  return WT[q] * rho * (1 + 3 * eu + 4.5 * eu * eu - 1.5 * u2);
+}
+
+function tauOf(re){ return 3 * (U0 * D / re) + 0.5; }
+function tauEff(re){ var t = tauOf(re); return t < TAU_MIN ? TAU_MIN : t > TAU_MAX ? TAU_MAX : t; }
+function reOfTau(tau){ return U0 * D / ((tau - 0.5) / 3); }
+
+function reset(){
+  for (var i = 0; i < N; i++) {
+    rhoA[i] = 1; uxA[i] = U0; uyA[i] = 0;
+    for (var q = 0; q < 9; q++) f[q][i] = feq(q, 1, U0, 0);
+  }
+  M.kick = 220; M.steps = 0; M.count = 0;
+}
+reset();
+
+/* Один шаг: столкновение, перенос, отражение от тела, вход и выход. */
+function lbmStep(tau){
+  var omega = 1 / tau, per = M.periodic;
+  for (var i = 0; i < N; i++) {
+    if (solid[i]) continue;
+    var rho = 0, mx = 0, my = 0;
+    for (var q = 0; q < 9; q++) { var v = f[q][i]; rho += v; mx += EX[q] * v; my += EY[q] * v; }
+    var ux = mx / rho, uy = my / rho;
+    rhoA[i] = rho; uxA[i] = ux; uyA[i] = uy;
+    for (var q2 = 0; q2 < 9; q2++) f[q2][i] += omega * (feq(q2, rho, ux, uy) - f[q2][i]);
+  }
+
+  /* Перенос. По вертикали периодически: строка −1 есть строка NY − 1.
+     Буферы не копируются, а меняются местами. */
+  for (var q3 = 0; q3 < 9; q3++) {
+    var src = f[q3], dst = ft[q3], ex = EX[q3], ey = EY[q3];
+    for (var yy = 0; yy < NY; yy++) {
+      var sy = yy - ey;
+      if (per) { if (sy < 0) sy += NY; else if (sy >= NY) sy -= NY; }
+      else { if (sy < 0) sy = 0; else if (sy >= NY) sy = NY - 1; }
+      var rowD = yy * NX, rowS = sy * NX;
+      for (var xx = 0; xx < NX; xx++) {
+        var sx = xx - ex;
+        if (sx < 0) sx = 0; else if (sx >= NX) sx = NX - 1;
+        dst[rowD + xx] = src[rowS + sx];
+      }
+    }
+  }
+  var swap = f; f = ft; ft = swap;
+
+  /* тело: доли отражаются назад, жидкость у стенки стоит */
+  for (var j = 0; j < N; j++) {
+    if (!solid[j]) continue;
+    for (var q5 = 0; q5 < 9; q5++) SCRATCH[q5] = f[q5][j];
+    for (var q6 = 0; q6 < 9; q6++) f[q6][j] = SCRATCH[OPP[q6]];
+    uxA[j] = 0; uyA[j] = 0;
+  }
+
+  /* толчок после сброса, см. шапку */
+  if (M.kick > 0) {
+    M.kick--;
+    for (var ky = CYL.y | 0; ky < (CYL.y | 0) + 5; ky++) {
+      for (var kx = (CYL.x | 0) + CYL.r + 1; kx < (CYL.x | 0) + CYL.r + 6; kx++) {
+        var ki = kx + ky * NX;
+        if (solid[ki]) continue;
+        for (var q9 = 0; q9 < 9; q9++) f[q9][ki] = feq(q9, rhoA[ki] || 1, uxA[ki], 0.012);
+      }
+    }
+  }
+
+  /* вход слева держит набегающий поток, справа жидкость выпускается */
+  for (var y2 = 0; y2 < NY; y2++) {
+    var li = y2 * NX;
+    for (var q7 = 0; q7 < 9; q7++) f[q7][li] = feq(q7, 1, U0, 0);
+    var ri = NX - 1 + y2 * NX, ri2 = NX - 2 + y2 * NX;
+    for (var q8 = 0; q8 < 9; q8++) f[q8][ri] = f[q8][ri2];
+  }
+
+  M.jur[M.count % M.JN] = uyA[PROBE] / U0;
+  M.count++; M.steps++;
+}
+
+/* n шагов при числе Рейнольдса re */
+function prognat(re, n){
+  var tau = tauEff(re);
+  for (var s = 0; s < n; s++) lbmStep(tau);
+}
+
+/* Журнал датчика: значение k шагов назад (k = 1 — последний шаг). */
+function nazad(k){ return M.jur[(M.count - k) % M.JN]; }
+function razmah(k0, k1){                 /* полуразмах за шаги от k1 до k0 назад */
+  var hi = -1e9, lo = 1e9;
+  for (var k = k1; k <= k0; k++) { var v = nazad(k); if (v > hi) hi = v; if (v < lo) lo = v; }
+  return (hi - lo) / 2;
+}
+
+var WIN = 2000, WIN_T = 6000, AMP_TIHO = 0.01;
+
+/* Зона возврата за кормой, в диаметрах: где на оси жидкость идёт назад. */
+function zonaVozvrata(){
+  var x0 = Math.ceil(CYL.x + CYL.r), last = -1;
+  function u(xx){ return 0.5 * (uxA[xx + YAX * NX] + uxA[xx + (YAX + 1) * NX]); }
+  for (var xx = x0; xx < NX - 1; xx++) { if (u(xx) < 0) last = xx; else break; }
+  if (last < 0) return 0;
+  var a = u(last), b = u(last + 1);
+  var x0z = last + a / (a - b);           /* ноль между last и last + 1 */
+  return (x0z - (CYL.x + CYL.r)) / D;
+}
+
+/* Что делает течение: из журнала датчика и поля на оси. */
+function razbor(re){
+  var tau = tauEff(re);
+  var out = { re: re, reEff: reOfTau(tau), tau: tau, nu: (tau - 0.5) / 3, Ma: U0 * Math.sqrt(3),
+              steps: M.steps, periodic: M.periodic,
+              ampUy: null, ampPrev: null, trend: null, regime: 'start',
+              shedding: false, period: null, strouhal: null, recircD: zonaVozvrata() };
+  var n = Math.min(M.count, M.JN);
+  if (n >= WIN) out.ampUy = razmah(WIN, 1);
+  if (n >= 2 * WIN) out.ampPrev = razmah(2 * WIN, WIN + 1);
+  if (out.ampUy != null && out.ampPrev != null) {
+    var r = out.ampPrev > 1e-9 ? out.ampUy / out.ampPrev : 1;
+    out.trend = r < 0.95 ? 'padaet' : r > 1.05 ? 'rastet' : 'derzhitsya';
+  }
+  /* период по переходам через среднее, с линейной вставкой */
+  var nt = Math.min(n, WIN_T), mean = 0, k;
+  for (k = 1; k <= nt; k++) mean += nazad(k);
+  mean /= Math.max(1, nt);
+  var cross = [];
+  for (k = nt; k > 1; k--) {
+    var a = nazad(k) - mean, b = nazad(k - 1) - mean;
+    if (a < 0 && b >= 0) cross.push((nt - k) + a / (a - b));
+  }
+  if (M.steps < 3000 || out.ampPrev == null) out.regime = 'start';
+  else if (out.ampUy < AMP_TIHO) out.regime = out.recircD > 0 ? 'vihri-stoyat' : 'bez-otryva';
+  else if (out.trend === 'padaet') out.regime = 'zatuhaet';
+  else out.regime = 'sryv';
+  out.shedding = out.regime === 'sryv';
+  if (out.ampUy != null && out.ampUy >= AMP_TIHO && cross.length >= 3) {
+    out.period = (cross[cross.length - 1] - cross[0]) / (cross.length - 1);
+    out.strouhal = D / (out.period * U0);
+  }
+  return out;
+}
+/* ── конец чистой физики ── */
+
+/* ── краска ──────────────────────────────────────────────────────────
+   Гребёнка слева выпускает струйки; частица идёт со скоростью своей
+   точки, снятой с решётки билинейно. Ряды через один двух цветов.
+   Ряды стоят симметрично относительно оси тела, через пять клеток. */
+var ROWS = 16, PER_ROW = 210, NP = ROWS * PER_ROW;
+var SEED_X = 6;
+var px = new Float32Array(NP), py = new Float32Array(NP), prow = new Uint8Array(NP);
+
+function rowY(r){ return CYL.y + (NY / ROWS) * (r - (ROWS - 1) / 2); }
+function seedOne(k){
+  px[k] = SEED_X + Math.random() * 2;
+  py[k] = rowY(prow[k]) + (Math.random() - 0.5) * 0.8;
+}
+function seedAll(){
+  for (var k = 0; k < NP; k++) {
+    prow[k] = k % ROWS;
+    px[k] = SEED_X + Math.random() * (NX - SEED_X - 4);
+    py[k] = rowY(prow[k]) + (Math.random() - 0.5) * 0.8;
+  }
+}
+seedAll();
+
+function sampleU(x, y, out){
+  var x0 = x | 0;
+  if (x0 < 0) x0 = 0; else if (x0 > NX - 2) x0 = NX - 2;
+  var fx = x - x0;
+  var y0 = Math.floor(y), fy = y - y0;
+  y0 = ((y0 % NY) + NY) % NY;
+  var y1 = y0 + 1 === NY ? 0 : y0 + 1;
+  var i00 = x0 + y0 * NX, i10 = i00 + 1, i01 = x0 + y1 * NX, i11 = i01 + 1;
+  out[0] = (uxA[i00] * (1 - fx) + uxA[i10] * fx) * (1 - fy) + (uxA[i01] * (1 - fx) + uxA[i11] * fx) * fy;
+  out[1] = (uyA[i00] * (1 - fx) + uyA[i10] * fx) * (1 - fy) + (uyA[i01] * (1 - fx) + uyA[i11] * fx) * fy;
+}
+var UV = new Float32Array(2);
+
+function moveDye(steps){
+  for (var k = 0; k < NP; k++) {
+    sampleU(px[k], py[k], UV);
+    px[k] += UV[0] * steps;
+    py[k] += UV[1] * steps;
+    if (py[k] < 0) py[k] += NY; else if (py[k] >= NY) py[k] -= NY;
+    var gx = px[k] | 0, gy = py[k] | 0;
+    if (px[k] > NX - 3 || (gx >= 0 && gx < NX && solid[gx + gy * NX])) seedOne(k);
+  }
+}
+
+/* ══════════════════ сцена ══════════════════
+
+   Сверху поле течения 1000 × 250 (решётка 320 × 80, клетка квадратная).
+   Под ним запись датчика: поперечная скорость за телом в долях скорости
+   потока за последние 6000 шагов. Справа показания: Re, число Струхаля,
+   зона возврата, размах. */
+
+var W = 1000, HGT = 446, FH = 250;
+var SX = W / NX, SY = FH / NY;
+var TX0 = 64, TX1 = 560, TY0 = 326, TY1 = 416;   /* запись датчика */
+var CV_A = '232,140,56', CV_B = '56,150,205';     /* краска, два ряда */
+var CV_PLUS = '222,84,62', CV_MINUS = '58,118,222'; /* завихрённость по и против часовой */
+var STEPS_PER_FRAME = 5;
+
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+function reTxt(v) { return v < 10 ? num(v, 1) : String(Math.round(v)); }
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function Obtekanie(){
+  var box = useRef(null);
+  if (!box.current) {
+    var cv = document.createElement('canvas'); cv.width = NX; cv.height = NY;
+    box.current = { re: 20, run: true, mode: 'dye',
+                    img: cv.getContext('2d').createImageData(NX, NY), off: cv, offctx: cv.getContext('2d'),
+                    an: null, klyuch: '' };
+  }
+  var st = box.current;
+  var pair = useState({ re: st.re, mode: st.mode, run: true, klyuch: '' });
+  var ui = pair[0], setUi = pair[1];
+
+  function snyat(){
+    st.an = razbor(st.re);
+    Object.assign(pokaz, st.an, { mode: st.mode, running: st.run });
+    /* строка показаний перерисовывается, только когда меняется её смысл */
+    var a = st.an, kl = a.regime + '|' + reTxt(a.reEff) + '|' +
+      (a.strouhal != null ? num(a.strouhal, 2) : '') + '|' + (a.regime === 'vihri-stoyat' ? num(a.recircD, 2) : '') +
+      '|' + (a.trend || '');
+    if (kl !== st.klyuch) {
+      st.klyuch = kl;
+      setUi(function (u) { return Object.assign({}, u, { klyuch: kl }); });
+    }
+  }
+
+  function step(){
+    if (!st.run) return;
+    prognat(st.re, STEPS_PER_FRAME);
+    moveDye(STEPS_PER_FRAME);
+    snyat();
+  }
+
+  function pole(ctx, tone){
+    if (st.mode === 'vort') {
+      /* завихрённость ω = ∂uy/∂x − ∂ux/∂y в долях U/D; цвет по знаку,
+         непрозрачность по величине, фон остаётся страницы. Строки решётки
+         идут сверху вниз, поэтому ω > 0 (красный) есть вращение по
+         часовой стрелке на экране: так закручен верхний слой у тела */
+      var d = st.img.data, per = M.periodic;
+      for (var y = 0; y < NY; y++) {
+        var ym = y > 0 ? y - 1 : (per ? NY - 1 : 0), yp = y < NY - 1 ? y + 1 : (per ? 0 : NY - 1);
+        for (var x = 0; x < NX; x++) {
+          var i = x + y * NX, p = i * 4;
+          if (solid[i]) { d[p + 3] = 0; continue; }
+          var xm = x > 0 ? i - 1 : i, xp = x < NX - 1 ? i + 1 : i;
+          var w = 0.5 * ((uyA[xp] - uyA[xm]) - (uxA[x + yp * NX] - uxA[x + ym * NX]));
+          var t = C.clamp(w * D / U0 / 2, -1, 1);
+          var c = t > 0 ? [222, 84, 62] : [58, 118, 222];
+          d[p] = c[0]; d[p + 1] = c[1]; d[p + 2] = c[2];
+          d[p + 3] = Math.round(255 * Math.pow(Math.abs(t), 0.7));
+        }
+      }
+      st.offctx.putImageData(st.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(st.off, 0, 0, NX, NY, 0, 0, W, FH);
+    } else {
+      for (var k = 0; k < NP; k++) {
+        ctx.fillStyle = (prow[k] & 1) ? 'rgba(' + CV_B + ',.85)' : 'rgba(' + CV_A + ',.85)';
+        ctx.fillRect(px[k] * SX - 1.6, py[k] * SY - 1.6, 3.2, 3.2);
+      }
+    }
+    /* тело заливкой, чтобы краска не читалась сквозь него */
+    ctx.beginPath();
+    ctx.arc(CYL.x * SX, CYL.y * SY, CYL.r * SX, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgb(' + tone.muted + ')'; ctx.fill();
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.8)'; ctx.lineWidth = 2; ctx.stroke();
+    /* рамка поля: сверху и снизу кромки периодические, пунктиром */
+    ctx.save();
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.35)'; ctx.lineWidth = 1.2; ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.moveTo(0, 0.5); ctx.lineTo(W, 0.5); ctx.moveTo(0, FH - 0.5); ctx.lineTo(W, FH - 0.5); ctx.stroke();
+    ctx.restore();
+    /* датчик */
+    var dxp = (PROBE % NX + 0.5) * SX, dyp = CYL.y * SY;
+    ctx.strokeStyle = 'rgb(' + tone.ink + ')'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(dxp - 7, dyp); ctx.lineTo(dxp + 7, dyp); ctx.moveTo(dxp, dyp - 7); ctx.lineTo(dxp, dyp + 7); ctx.stroke();
+  }
+
+  function zapis(ctx, tone){
+    var mut = 'rgba(' + tone.muted + ',.95)', ink = tone.ink;
+    function Y(v){ return (TY0 + TY1) / 2 - v / 1.25 * (TY1 - TY0) / 2; }
+    C.label(ctx, TX0, TY0 - 16, 'датчик за телом: поперечная скорость в долях скорости потока', 17, mut, 'left');
+    ctx.lineWidth = 1;
+    [-1, 0, 1].forEach(function (v) {
+      ctx.strokeStyle = 'rgba(' + ink + ',' + (v === 0 ? '.35' : '.12') + ')';
+      ctx.beginPath(); ctx.moveTo(TX0, Y(v)); ctx.lineTo(TX1, Y(v)); ctx.stroke();
+      C.label(ctx, TX0 - 8, Y(v) + 6, v === 0 ? '0' : (v > 0 ? '+1' : '−1'), 17, mut, 'right');
+    });
+    C.label(ctx, TX1, TY1 + 24, 'последние 6000 шагов решётки', 17, mut, 'right');
+    var n = Math.min(M.count, M.JN, WIN_T);
+    if (n < 2) return;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(TX0, TY0 - 4, TX1 - TX0, TY1 - TY0 + 8); ctx.clip();
+    ctx.strokeStyle = 'rgb(' + ink + ')'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    var stepPx = (TX1 - TX0) / WIN_T, every = 4;
+    for (var k = n; k >= 1; k -= every) {
+      var xx = TX1 - (k - 1) * stepPx, yv = Y(C.clamp(nazad(k), -1.3, 1.3));
+      if (k === n) ctx.moveTo(xx, yv); else ctx.lineTo(xx, yv);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function pokazaniya(ctx, tone){
+    var a = st.an || razbor(st.re), ink = 'rgb(' + tone.ink + ')';
+    C.readout(ctx, 780, TY0 - 14, 'RE ПО ДИАМЕТРУ', reTxt(a.reEff), ink);
+    C.readout(ctx, 975, TY0 - 14, 'ЧИСЛО СТРУХАЛЯ', a.strouhal != null && a.shedding ? num(a.strouhal, 3) : '—', 'rgb(' + CV_A + ')');
+    C.readout(ctx, 780, TY0 + 58, 'ЗОНА ВОЗВРАТА, D', a.regime === 'vihri-stoyat' || a.regime === 'bez-otryva' ? num(a.recircD, 2) : '—', 'rgb(' + CV_B + ')');
+    C.readout(ctx, 975, TY0 + 58, 'РАЗМАХ ЗА ТЕЛОМ', a.ampUy != null ? num(a.ampUy, 2) : '—', ink);
+  }
+
+  function draw(ctx){
+    var tone = C.tones(ctx);
+    pole(ctx, tone);
+    var mut = 'rgba(' + tone.muted + ',.95)';
+    C.label(ctx, 8, FH + 22, 'поток идёт слева направо', 17, mut, 'left');
+    C.label(ctx, W - 8, FH + 22, 'сверху и снизу через пять диаметров стоят такие же цилиндры', 17, mut, 'right');
+    zapis(ctx, tone);
+    pokazaniya(ctx, tone);
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+  if (!pokaz.regime) snyat();
+
+  function setRe(v){
+    st.re = C.clamp(v, 0.6, 224);
+    snyat();
+    setUi(function (u) { return Object.assign({}, u, { re: st.re }); });
+  }
+  function setMode(m){ st.mode = m; snyat(); setUi(function (u) { return Object.assign({}, u, { mode: m }); }); }
+  function sbros(){ reset(); seedAll(); snyat(); }
+  function pusk(){ st.run = !st.run; snyat(); setUi(function (u) { return Object.assign({}, u, { run: st.run }); }); }
+
+  /* Для автопроверки: __demoSet({ re, reset, mode, run, kromki }) ставит
+     ручки (kromki: 'prizhatye' — кромки Марабу, только для отрицательного
+     контроля, на сцене их не выбрать); __demoRun(n) — n шагов решётки без
+     краски и кадров, затем свежий разбор. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.kromki) M.periodic = o.kromki !== 'prizhatye';
+    if (o.re != null) st.re = C.clamp(o.re, 0.6, 224);
+    if (o.mode) st.mode = o.mode;
+    if (o.run != null) st.run = !!o.run;
+    if (o.reset) { reset(); seedAll(); }
+    snyat();
+    setUi({ re: st.re, mode: st.mode, run: st.run, klyuch: st.klyuch });
+    return pokaz;
+  };
+  window.__demoRun = function (n) { prognat(st.re, n || 1); snyat(); return pokaz; };
+
+  function slova(){
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var a = st.an || razbor(st.re), re = 'Re = ' + reTxt(a.reEff) + '. ';
+    if (a.regime === 'start')
+      return re + 'Поток только что пущен на тело, течение устанавливается. Режим демка не назначает по числу, а снимает с датчика за телом.';
+    if (a.regime === 'bez-otryva')
+      return re + 'Обтекание почти симметрично спереди и сзади, как у шара в законе Стокса: струйки расходятся перед телом и смыкаются за ним, обратного течения нет. Вязкость здесь сильнее инерции.';
+    if (a.regime === 'vihri-stoyat')
+      return re + 'Струйки отрываются от кормы, и за телом стоят два вихря: на оси жидкость идёт назад на ' + A(num(a.recircD, 2) + ' диаметра') +
+        '. Течение установилось, датчик за телом пишет прямую.';
+    if (a.regime === 'zatuhaet')
+      return re + 'След за телом качается, но размах падает с каждым периодом: колебания гаснут, и течение придёт к двум стоячим вихрям.';
+    var St = a.strouhal != null ? ' Число Струхаля St = fD/U = ' + A(num(a.strouhal, 3)) + '.' : ' Период ещё снимается.';
+    return re + 'Вихри срываются с тела по очереди, то сверху, то снизу, и уходят дорожкой Кармана.' + St +
+      (a.trend === 'rastet' ? ' Размах ещё растёт.' : '') +
+      ' Течение по-прежнему ламинарное, только нестационарное: картина повторяется с периодом срыва, турбулентностью её не называют.';
+  }
+
+  var PRESETS = [1, 20, 100, 200];
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Re:">
+          ${PRESETS.map(function (v) {
+            return html`<${C.Btn} key=${v} active=${Math.abs(ui.re - v) < 1e-9} onClick=${function () { setRe(v); }}>${String(v)}<//>`; })}
+        <//>
+        <${C.Slider} min=${0.6} max=${224} step=${0.005} log=${true} value=${ui.re} onChange=${setRe}
+                     display=${reTxt(ui.re)} />
+        <${C.Group}>
+          <${C.Btn} active=${ui.mode === 'dye'} onClick=${function(){ setMode('dye'); }}>Краска<//>
+          <${C.Btn} active=${ui.mode === 'vort'} onClick=${function(){ setMode('vort'); }}>Завихрённость<//>
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${pusk}>${ui.run ? 'Пауза' : 'Пуск'}<//>
+          <${C.Btn} onClick=${sbros}>Сброс<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Obtekanie);
+</script>
+</body>
+</html>

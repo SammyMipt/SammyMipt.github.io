@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pV-диаграмма: работа площадью, теплота по первому началу</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-09/">&larr; Неделя 09</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=pv-diagramma"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Производство драфта недели 09 (бриф briefs/proizvodstvo09.md, демки,
+   исполнитель 2; карточка 3 описи lekciya09_demki_minuty.md §1.4; рамка
+   §4, шаги «Изотерма и три пути» и «Политропа»; сверка 9.12 и 9.17, аудит,
+   мелочь 9). Блоки главы: izotermicheskij-process, rabota-zavisit-ot-puti,
+   izohornyj-i-izobarnyj, politropnyj-process, adiabaticheskij-process.
+
+   ЧТО СЧИТАЕТСЯ. Моль идеального газа идёт по пути квазистатически:
+   поршень шагает по объёму мелкими шагами, давление на каждом шаге берётся
+   по закону процесса (это и есть путь), температура из уравнения
+   состояния T = PV/νR. На каждом шаге:
+       работа         δA = ½(P_k + P_k+1)(V_k+1 − V_k)   (трапеция),
+       энергия        dU = C_V (T_k+1 − T_k)             (U зависит от T),
+       теплота        δQ = dU + δA                        (первое начало).
+   Суммы шагов дают A, ΔU и Q пути; теплота набирается отдельно со знаком,
+   полученная Q⁺ и отданная Q⁻. Формулы ответа (νRT ln, работа адиабаты,
+   C_V(n − γ)/(n − 1)) в счёт не входят: они стоят рядом для сверки.
+   C_V = (i/2)νR постоянна, i = 3 или 5, γ = (i + 2)/i.
+
+   ПОЛИТРОПЫ. Начало 300 К и 10 л, P₁ = νRT₁/V₁ = 249,4 кПа. Путь
+   P V^n = const до объёма V₂ от 5 до 40 л; объём шагает геометрически,
+   по 2000 шагов на удвоение, и границы удвоений лежат в узлах, поэтому
+   работа каждого удвоения снимается разностью сумм. n от −1 до 3 и
+   отдельное положение n = ∞, изохора: объём стоит, и ползунок конца
+   задаёт давление P₂ = P₁V₁/V₂ (2000 шагов по давлению). Теплоёмкость
+   процесса C = Q/ΔT берётся из сумм счёта; при ΔT в пределах счёта
+   (изотерма) она бесконечна.
+
+   ТРИ ПУТИ между (2·10⁵ Па; 10 л) и (10⁵ Па; 20 л): изобара и изохора,
+   изотерма, изохора и изобара; цикл туда путём 1 и обратно путём 3.
+   PV в обоих концах 2000 Дж, T = 240,5 К.
+
+   ПРОВЕРКА (23.10; python scratchpad pv_demka_check.py формулами ответа и
+   briefs/lekciya09_skripty/pv09.py, node по этому же коду, hcheck на порту
+   49943: __demoSet, __demoTick, чтение __demoState и пикселей канвы;
+   отчёт briefs/proizvodstvo09_demki-2_REPORT.md). Моль, i = 5, 10–20 л:
+   изотерма A = Q = 1728,94 Дж против νRT ln 2 = 1728,94 (расхождение
+   3·10⁻⁵ Дж), до 40 л удвоения по 1728,944 Дж, до 30 л 1728,944 и
+   1011,367; сжатие до 5 л −1728,94. Адиабата 1509,96 Дж, T₂ = 227,36 К,
+   Q = 1·10⁻⁴ Дж, P₂ = 94 518 Па против 124 717 у изотермы; до 40 л
+   удвоения 1509,96 и 1144,33. C = Q/ΔT из сумм: n = 0 29,101 (C_P),
+   0,5 37,415, 1,2 −20,786 (Q = 807,23 Дж, T₂ = 261,17 К), 2 12,472,
+   3 16,629, −1 24,943 = C_V + R/2, изохора 20,786 = C_V; формула
+   C_V(n − γ)/(n − 1) та же до 10⁻³. i = 3: адиабата T₂ = 188,99 К,
+   n = 1,2 даёт −29,101. Три пути: 2000; 1386,29; 1000 Дж, ΔU до
+   5·10⁻¹¹ Дж, T концов 240,545 К, углы 481,1 и 120,3 К; теплота по
+   отрезкам +7000 и −5000, +1386,29, −2500 и +3500 (i = 3: +5000 и
+   −3000, −1500 и +2500); цикл 1 туда, 3 обратно: A = Q = 1000 Дж,
+   получено 9500, отдано 8500. Ход поршня: через 2 с из 4 изотерма
+   набрала 864,47 Дж, ровно половину: шаги поршня равны по логарифму
+   объёма, и на полпути V = 14,14 л; к концу 1728,94. Пиксели: площадь под изотермой закрашена, над ней нет; точка
+   (15 л; 120 кПа) закрашена у пути 2 и пуста у пути 3. Сходимость:
+   изотерма на 10, 100, 1000, 2000 шагах ошибается на 1,38; 1,4·10⁻²;
+   1,4·10⁻⁴; 3,5·10⁻⁵ Дж. Отрицательный контроль: работа как функция
+   концов (P₂V₂ − P₁V₁) дала бы 0 у всех трёх путей вместо 2000, 1386 и
+   1000; теплота изохоры через C_P вместо первого начала −7000 вместо
+   −5000; левые прямоугольники вместо трапеций ошибаются на изотерме на
+   0,30 Дж при 2000 шагах. */
+
+/* ── чистая физика ──────────────────────────────────────────────
+   Отсюда до пометки «конец чистой физики» код не знает о браузере и
+   прогоняется в node. */
+
+var R = 8.314462618;            /* Дж/(моль·К), k·N_A */
+var NU = 1;                     /* моль */
+var LITR = 1e-3;                /* м³ */
+var M_UDV = 2000;               /* шагов поршня на удвоение объёма */
+var N_IZOH = 2000;              /* шагов изохоры по давлению */
+var T_1 = 300, V_1 = 10 * LITR; /* начало политроп */
+var V2_MIN = 5 * LITR, V2_MAX = 40 * LITR;
+var N_MIN = -1, N_MAX = 3;
+var P_A = 2e5, V_A = 10 * LITR, P_B = 1e5, V_B = 20 * LITR;   /* концы трёх путей */
+
+function gaz(i) {
+  var Cv = i / 2 * NU * R;
+  return { i: i, Cv: Cv, Cp: Cv + NU * R, gamma: (i + 2) / i };
+}
+function temp(P, V) { return P * V / (NU * R); }
+
+/* Узлы политропы P V^n = const от (Va, Pa) до объёма Vb: давление по
+   закону процесса, объём геометрически, M_UDV шагов на удвоение. */
+function uzlyPolitropy(Va, Pa, n, Vb) {
+  var udv = Math.log(Vb / Va) / Math.LN2, zn = udv < 0 ? -1 : 1;
+  var K = Math.max(1, Math.ceil(Math.abs(udv) * M_UDV - 1e-6));
+  var V = new Float64Array(K + 1), P = new Float64Array(K + 1);
+  for (var k = 0; k <= K; k++) {
+    V[k] = k === K ? Vb : Va * Math.pow(2, zn * k / M_UDV);
+    P[k] = Pa * Math.pow(Va / V[k], n);
+  }
+  return { V: V, P: P, udv: udv };
+}
+/* Узлы изохоры: объём стоит, давление шагает от Pa до Pb. */
+function uzlyIzohory(V, Pa, Pb) {
+  var K = N_IZOH, VV = new Float64Array(K + 1), P = new Float64Array(K + 1);
+  for (var k = 0; k <= K; k++) { VV[k] = V; P[k] = k === K ? Pb : Pa + (Pb - Pa) * k / K; }
+  return { V: VV, P: P, udv: 0 };
+}
+
+/* Отрезок пути: суммы по шагам. storona — куда от линии ставить подпись
+   теплоты на рисунке. */
+function otrezok(imya, uzly, g, storona) {
+  var V = uzly.V, P = uzly.P, K = V.length - 1;
+  var A = new Float64Array(K + 1), U = new Float64Array(K + 1), Q = new Float64Array(K + 1);
+  var QP = new Float64Array(K + 1), QM = new Float64Array(K + 1);
+  var T = temp(P[0], V[0]);
+  for (var k = 0; k < K; k++) {
+    var dA = 0.5 * (P[k] + P[k + 1]) * (V[k + 1] - V[k]);
+    var T2 = temp(P[k + 1], V[k + 1]);
+    var dU = g.Cv * (T2 - T);
+    var dQ = dU + dA;
+    A[k + 1] = A[k] + dA; U[k + 1] = U[k] + dU; Q[k + 1] = Q[k] + dQ;
+    QP[k + 1] = QP[k] + (dQ > 0 ? dQ : 0); QM[k + 1] = QM[k] + (dQ < 0 ? dQ : 0);
+    T = T2;
+  }
+  var masht = Math.abs(A[K]) + Math.abs(U[K]) + 1e-9;
+  return {
+    imya: imya, V: V, P: P, A: A, U: U, Q: Q, QP: QP, QM: QM, K: K, udv: uzly.udv,
+    T1: temp(P[0], V[0]), T2: temp(P[K], V[K]), storona: storona || 'up',
+    /* знак теплоты на отрезке; ноль, если она в пределах счёта */
+    znakQ: Math.abs(Q[K]) < 1e-6 * masht ? 0 : Q[K] > 0 ? 1 : -1,
+    znakA: Math.abs(A[K]) < 1e-9 * masht ? 0 : A[K] > 0 ? 1 : -1
+  };
+}
+
+/* Путь: отрезки подряд, итоги сумм. */
+function put(imya, otrezki) {
+  var p = { imya: imya, otrezki: otrezki, K: 0, A: 0, Q: 0, dU: 0, Qp: 0, Qm: 0 };
+  otrezki.forEach(function (s) {
+    p.K += s.K; p.A += s.A[s.K]; p.Q += s.Q[s.K]; p.dU += s.U[s.K];
+    p.Qp += s.QP[s.K]; p.Qm += s.QM[s.K];
+  });
+  return p;
+}
+
+/* Состояние на доле хода dolya от 0 до 1: номер отрезка, шаг и суммы. */
+function naHodu(p, dolya) {
+  var j = Math.round(Math.max(0, Math.min(1, dolya)) * p.K);
+  var A = 0, Q = 0, U = 0, Qp = 0, Qm = 0, m, s;
+  for (m = 0; m < p.otrezki.length; m++) {
+    s = p.otrezki[m];
+    if (j <= s.K || m === p.otrezki.length - 1) break;
+    A += s.A[s.K]; Q += s.Q[s.K]; U += s.U[s.K]; Qp += s.QP[s.K]; Qm += s.QM[s.K];
+    j -= s.K;
+  }
+  var k = Math.min(j, s.K);
+  return { m: m, k: k, V: s.V[k], P: s.P[k], T: temp(s.P[k], s.V[k]),
+           A: A + s.A[k], Q: Q + s.Q[k], dU: U + s.U[k], Qp: Qp + s.QP[k], Qm: Qm + s.QM[k] };
+}
+
+/* Политропа из 300 К и 10 л; n === Infinity — изохора до P₂ = P₁V₁/V₂. */
+function politropa(i, n, V2) {
+  var g = gaz(i), P1 = NU * R * T_1 / V_1, s;
+  if (n === Infinity) s = otrezok('изохора', uzlyIzohory(V_1, P1, P1 * V_1 / V2), g, 'right');
+  else s = otrezok('политропа', uzlyPolitropy(V_1, P1, n, V2), g, n === 0 ? 'up' : n < 0 ? 'ul' : 'ur');
+  var p = put('politropa', [s]);
+  p.g = g; p.n = n; p.P1 = P1; p.V1 = V_1; p.P2 = s.P[s.K]; p.V2 = s.V[s.K];
+  p.T1 = s.T1; p.T2 = s.T2;
+  var dT = s.T2 - s.T1;
+  p.dT = Math.abs(dT) < 1e-9 * T_1 ? 0 : dT;
+  p.C = p.dT === 0 ? (Math.abs(p.Q) < 1e-6 ? null : Infinity) : p.Q / dT;
+  /* формулы для сверки, в счёт не входят */
+  p.Cformula = n === Infinity ? g.Cv : n === 1 ? Infinity : g.Cv * (n - g.gamma) / (n - 1);
+  p.Aformula = n === Infinity ? 0 : n === 1 ? NU * R * T_1 * Math.log(V2 / V_1)
+    : (P1 * V_1 - p.P2 * p.V2) / (n - 1);
+  /* работа по удвоениям объёма: границы удвоений лежат в узлах */
+  p.udvoeniya = [];
+  if (n !== Infinity) {
+    var polnyh = Math.floor(Math.abs(s.udv) + 1e-9), zn = s.udv < 0 ? -1 : 1, b;
+    for (b = 0; b < polnyh; b++)
+      p.udvoeniya.push({ Va: V_1 * Math.pow(2, zn * b), Vb: V_1 * Math.pow(2, zn * (b + 1)),
+                         A: s.A[(b + 1) * M_UDV] - s.A[b * M_UDV] });
+    if (polnyh * M_UDV < s.K && polnyh > 0)
+      p.udvoeniya.push({ Va: V_1 * Math.pow(2, zn * polnyh), Vb: s.V[s.K],
+                         A: s.A[s.K] - s.A[polnyh * M_UDV], chast: true });
+  }
+  return p;
+}
+
+/* Три пути из (P_A; V_A) в (P_B; V_B) и цикл туда путём 1, обратно путём 3. */
+function triPuti(i) {
+  var g = gaz(i);
+  function izobara(P, Va, Vb, st) { return otrezok('изобара', uzlyPolitropy(Va, P, 0, Vb), g, st); }
+  function izohora(V, Pa, Pb, st) { return otrezok('изохора', uzlyIzohory(V, Pa, Pb), g, st); }
+  var puti = {
+    1: put('1', [izobara(P_A, V_A, V_B, 'up'), izohora(V_B, P_A, P_B, 'right')]),
+    2: put('2', [otrezok('изотерма', uzlyPolitropy(V_A, P_A, 1, V_B), g, 'ur')]),
+    3: put('3', [izohora(V_A, P_A, P_B, 'left'), izobara(P_B, V_A, V_B, 'up')]),
+    cikl: put('cikl', [izobara(P_A, V_A, V_B, 'up'), izohora(V_B, P_A, P_B, 'right'),
+                       izobara(P_B, V_B, V_A, 'down'), izohora(V_A, P_B, P_A, 'left')])
+  };
+  puti.g = g; puti.T = temp(P_A, V_A);
+  puti.Tugly = [temp(P_A, V_B), temp(P_B, V_A)];   /* углы путей 1 и 3 */
+  return puti;
+}
+/* ── конец чистой физики ── */
+
+/* Русская запятая и настоящий минус; крохи печатаются нулём. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return v === Infinity || v === -Infinity ? '∞' : '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+/* Джоули целыми, с пробелом в тысячах от десяти тысяч. */
+function dzh(v) {
+  var t = num(v, 0), m = /^(−?)(\d+)$/.exec(t);
+  if (m && m[2].length >= 5) t = m[1] + m[2].replace(/\B(?=(\d{3})+$)/g, ' ');
+  return t;
+}
+function dzhZn(v) { var t = dzh(v); return v > 0 && t !== '0' ? '+' + t : t; }
+function kPa(P) { return num(P / 1e3, P >= 1e6 ? 0 : 1); }
+function litr(V) { return num(V / LITR, Math.abs(V / LITR - Math.round(V / LITR)) < 1e-9 ? 0 : 1); }
+
+/* ══════════════════ сцена ══════════════════
+
+   Слева плоскость P–V: путь окрашен по знаку теплоты (тёплый цвет газ
+   получает теплоту, синий отдаёт, цвет чернил ноль), площадь под путём по
+   знаку работы, стрелка показывает направление. Пунктиром изотерма и
+   адиабата через начало (политропы) или изотермы через углы путей.
+   Справа столбики A, Q и ΔU и показания. */
+
+var W = 1000, HGT = 460;
+var X0 = 100, X1 = 610, Y0 = 40, Y1 = 372;
+var CV_A = '77,182,198';      /* работа газа */
+var CV_MINUS = '200,80,140';  /* работа над газом */
+var CV_IN = '236,120,62';     /* газ получает теплоту */
+var CV_OUT = '72,140,232';    /* газ отдаёт теплоту */
+var CV_U = '160,130,220';     /* внутренняя энергия */
+var YARUSY = [300e3, 600e3, 1200e3, 2400e3];
+var SHAG_P = { 250000: 50e3, 300000: 100e3, 600000: 200e3, 1200000: 400e3, 2400000: 800e3 };
+var DLIT = 4;                 /* секунд на проход поршня */
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function PV() {
+  var box = useRef(null);
+  if (!box.current) box.current = {
+    rezhim: 'politropa', i: 5, n: 1, nabor: 'izoterma', V2: 20 * LITR, put: 1,
+    dolya: 1, idet: false, kesh: null
+  };
+  var S = box.current;
+  var pair = useState({ n: 0 });
+  var setUi = pair[1];
+
+  /* ── модель по ручкам ── */
+
+  function model() {
+    var klyuch = [S.rezhim, S.i, S.n, S.V2].join('|');
+    if (S.kesh && S.kesh.klyuch === klyuch) return S.kesh.m;
+    var m = S.rezhim === 'politropa' ? politropa(S.i, S.n, S.V2) : triPuti(S.i);
+    S.kesh = { klyuch: klyuch, m: m };
+    return m;
+  }
+  function tekPuti(m) {
+    if (S.rezhim === 'politropa') return [m];
+    return S.put === 'vse' ? [m[1], m[2], m[3]] : [m[S.put]];
+  }
+
+  function snyat() {
+    var m = model(), puti = tekPuti(m), p = puti[0], z = naHodu(p, S.dolya);
+    for (var k in pokaz) delete pokaz[k];
+    var g = m.g;
+    Object.assign(pokaz, {
+      mode: S.rezhim, i: S.i, gamma: g.gamma, Cv: g.Cv, Cp: g.Cp, progress: S.dolya, running: S.idet,
+      steps: p.K, V: z.V, P: z.P, T: z.T, A: z.A, Q: z.Q, dU: z.dU, Qin: z.Qp, Qout: z.Qm,
+      full: { A: p.A, Q: p.Q, dU: p.dU, Qin: p.Qp, Qout: p.Qm }
+    });
+    if (S.rezhim === 'politropa') {
+      Object.assign(pokaz, {
+        n: S.n, nabor: S.nabor, V1: p.V1, V2: p.V2, p1: p.P1, p2: p.P2, T1: p.T1, T2: p.T2,
+        C: p.C, Cformula: p.Cformula, Aformula: p.Aformula,
+        doublings: p.udvoeniya.map(function (u) { return { Va: u.Va, Vb: u.Vb, A: u.A, partial: !!u.chast }; })
+      });
+    } else {
+      Object.assign(pokaz, {
+        path: S.put, V1: V_A, V2: V_B, p1: P_A, p2: P_B, T1: m.T, T2: m.T, Tcorners: m.Tugly,
+        paths: [1, 2, 3, 'cikl'].map(function (id) {
+          var q = m[id];
+          return { id: id, A: q.A, Q: q.Q, dU: q.dU, Qin: q.Qp, Qout: q.Qm,
+                   segments: q.otrezki.map(function (s) {
+                     return { name: s.imya, A: s.A[s.K], Q: s.Q[s.K], dU: s.U[s.K], signQ: s.znakQ }; }) };
+        })
+      });
+    }
+    return pokaz;
+  }
+  if (pokaz.mode == null) snyat();
+
+  function obnovit() { snyat(); setUi(function (u) { return { n: u.n + 1 }; }); }
+
+  function step(dt) {
+    if (!S.idet) return;
+    S.dolya = Math.min(1, S.dolya + dt / DLIT);
+    if (S.dolya >= 1) S.idet = false;
+    obnovit();
+  }
+
+  /* ── вид ── */
+
+  /* Рамка: у политроп V до 45 л и давление ярусами (300, 600, 1200,
+     2400 кПа, наименьший, куда путь влезает), у трёх путей 25 л и 250 кПа. */
+  function vid(m) {
+    var pol = S.rezhim === 'politropa', Pmax = 250e3;
+    if (pol) {
+      var pm = m.P1, s = m.otrezki[0];
+      for (var k = 0; k <= s.K; k += 50) pm = Math.max(pm, s.P[k]);
+      pm = Math.max(pm, s.P[s.K]);
+      Pmax = YARUSY[YARUSY.length - 1];
+      for (var j = 0; j < YARUSY.length; j++) if (pm <= 0.92 * YARUSY[j]) { Pmax = YARUSY[j]; break; }
+    }
+    var Vmax = pol ? 45 * LITR : 25 * LITR;
+    return {
+      Vmax: Vmax, Pmax: Pmax, shagP: SHAG_P[Pmax],
+      vTicks: pol ? [0, 10, 20, 30, 40] : [0, 5, 10, 15, 20],
+      X: function (V) { return X0 + V / Vmax * (X1 - X0); },
+      Y: function (P) { return Y1 - P / Pmax * (Y1 - Y0); }
+    };
+  }
+
+  function osi(ctx, v, ink, mut) {
+    ctx.lineWidth = 1;
+    for (var P = 0; P <= v.Pmax + 1; P += v.shagP) {
+      var y = v.Y(P);
+      ctx.strokeStyle = 'rgba(' + ink + ',' + (P === 0 ? '.45' : '.10') + ')';
+      ctx.beginPath(); ctx.moveTo(X0, y); ctx.lineTo(X1, y); ctx.stroke();
+      C.label(ctx, X0 - 8, y + 6, num(P / 1e3, 0), 17, mut, 'right');
+    }
+    v.vTicks.forEach(function (Vl) {
+      var x = v.X(Vl * LITR);
+      ctx.strokeStyle = 'rgba(' + ink + ',' + (Vl === 0 ? '.45' : '.10') + ')';
+      ctx.beginPath(); ctx.moveTo(x, Y0); ctx.lineTo(x, Y1); ctx.stroke();
+      C.label(ctx, x, Y1 + 24, String(Vl), 17, mut);
+    });
+    C.label(ctx, X0 - 8, Y0 - 16, 'P, кПа', 17, mut, 'right');
+    C.label(ctx, X1, Y1 + 24, 'V, л', 17, mut, 'right');
+  }
+
+  /* Пунктирная кривая P(V) по всей ширине рамки. */
+  function prizrak(ctx, v, fn, rgb, podpis, mut) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(X0, Y0 - 4, X1 - X0, Y1 - Y0 + 4); ctx.clip();
+    ctx.setLineDash([6, 6]); ctx.strokeStyle = 'rgba(' + rgb + ',.45)'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (var x = X0 + 4, first = true; x <= X1; x += 3) {
+      var V = (x - X0) / (X1 - X0) * v.Vmax, y = v.Y(fn(V));
+      if (y < Y0 - 400) { first = true; continue; }
+      if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+    if (podpis) C.label(ctx, podpis.x, podpis.y, podpis.t, 17, mut, podpis.al || 'right');
+  }
+
+  function zalivka(ctx, v, s, kmax, alpha) {
+    if (kmax < 1 || s.znakA === 0) return;
+    var rgb = s.znakA > 0 ? CV_A : CV_MINUS, sh = Math.max(1, Math.floor(kmax / 400));
+    ctx.fillStyle = 'rgba(' + rgb + ',' + alpha + ')';
+    ctx.beginPath(); ctx.moveTo(v.X(s.V[0]), v.Y(0));
+    for (var k = 0; k <= kmax; k += sh) ctx.lineTo(v.X(s.V[k]), v.Y(s.P[k]));
+    ctx.lineTo(v.X(s.V[kmax]), v.Y(s.P[kmax]));
+    ctx.lineTo(v.X(s.V[kmax]), v.Y(0)); ctx.closePath(); ctx.fill();
+  }
+
+  function cvetQ(s, ink) { return s.znakQ > 0 ? CV_IN : s.znakQ < 0 ? CV_OUT : ink; }
+
+  function liniya(ctx, v, s, kmax, ink, yarko) {
+    var rgb = cvetQ(s, ink), sh = Math.max(1, Math.floor(s.K / 500));
+    function chast(k0, k1, a, w, dash) {
+      if (k1 <= k0) return;
+      ctx.save(); if (dash) ctx.setLineDash([5, 5]);
+      ctx.strokeStyle = 'rgba(' + rgb + ',' + a + ')'; ctx.lineWidth = w; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(v.X(s.V[k0]), v.Y(s.P[k0]));
+      for (var k = k0 + sh; k < k1; k += sh) ctx.lineTo(v.X(s.V[k]), v.Y(s.P[k]));
+      ctx.lineTo(v.X(s.V[k1]), v.Y(s.P[k1])); ctx.stroke(); ctx.restore();
+    }
+    chast(kmax, s.K, .45, 1.8, true);
+    chast(0, kmax, yarko ? 1 : .9, 3, false);
+    /* стрелка направления в середине отрезка */
+    var km = Math.floor(s.K / 2), k2 = Math.min(s.K, km + Math.max(2, Math.floor(s.K / 50)));
+    var xa = v.X(s.V[km]), ya = v.Y(s.P[km]), xb = v.X(s.V[k2]), yb = v.Y(s.P[k2]);
+    var a = Math.atan2(yb - ya, xb - xa);
+    if (Math.hypot(xb - xa, yb - ya) < 0.5) return;
+    ctx.fillStyle = 'rgba(' + rgb + ',' + (kmax >= km ? 1 : .5) + ')';
+    ctx.beginPath(); ctx.moveTo(xa + 8 * Math.cos(a), ya + 8 * Math.sin(a));
+    ctx.lineTo(xa - 8 * Math.cos(a) + 7 * Math.sin(a), ya - 8 * Math.sin(a) - 7 * Math.cos(a));
+    ctx.lineTo(xa - 8 * Math.cos(a) - 7 * Math.sin(a), ya - 8 * Math.sin(a) + 7 * Math.cos(a));
+    ctx.closePath(); ctx.fill();
+  }
+
+  /* Подпись теплоты отрезка: у прямых отрезков над серединой или сбоку, у
+     кривых правее и выше точки на 0,62 хода, чтобы не лечь на стрелку. */
+  function podpisQ(ctx, v, s, ink) {
+    var kriv = s.storona === 'ur' || s.storona === 'ul';
+    var km = Math.floor(s.K * (kriv ? 0.62 : 0.5)), x = v.X(s.V[km]), y = v.Y(s.P[km]);
+    var t = 'Q = ' + dzhZn(s.Q[s.K]) + ' Дж', col = 'rgb(' + cvetQ(s, ink) + ')';
+    if (s.storona === 'ur') C.label(ctx, x + 12, y - 12, t, 17, col, 'left');
+    else if (s.storona === 'ul') C.label(ctx, x - 12, y - 12, t, 17, col, 'right');
+    else if (s.storona === 'up') C.label(ctx, x, y - 14, t, 17, col, 'center');
+    else if (s.storona === 'down') C.label(ctx, x, y + 26, t, 17, col, 'center');
+    else if (s.storona === 'right') C.label(ctx, x + 12, y + 6, t, 17, col, 'left');
+    else C.label(ctx, x - 12, y + 6, t, 17, col, 'right');
+  }
+
+  /* Подпись с нижними индексами: «C_V» рисуется как C с маленьким V ниже
+     строки (на канве KaTeX нет). */
+  function nadpisSub(ctx, x, y, text, size, color, align) {
+    var chasti = [], re = /_([A-Za-z])/g, last = 0, mm;
+    while ((mm = re.exec(text))) { chasti.push([text.slice(last, mm.index), false]); chasti.push([mm[1], true]); last = re.lastIndex; }
+    chasti.push([text.slice(last), false]);
+    function shrift(sub) { return (sub ? Math.round(size * 0.72) : size) + 'px "Golos Text", system-ui, sans-serif'; }
+    var w = 0;
+    chasti.forEach(function (c) { ctx.font = shrift(c[1]); w += ctx.measureText(c[0]).width; });
+    var x0 = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
+    ctx.fillStyle = color; ctx.textAlign = 'left';
+    chasti.forEach(function (c) {
+      ctx.font = shrift(c[1]); ctx.fillText(c[0], x0, y + (c[1] ? size * 0.25 : 0));
+      x0 += ctx.measureText(c[0]).width;
+    });
+    ctx.textAlign = 'center';
+  }
+
+  function tochka(ctx, x, y, r, col) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill(); }
+
+  /* ── диаграмма ── */
+
+  function diagramma(ctx, m, tone) {
+    var ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)', v = vid(m);
+    var puti = tekPuti(m), vse = S.rezhim === 'puti' && S.put === 'vse';
+    osi(ctx, v, ink, mut);
+
+    if (S.rezhim === 'politropa') {
+      /* подпись не ставится, если выбранный путь лёг на эту кривую */
+      var p = m, P1V1 = p.P1 * p.V1, g = p.g, metki = v.Pmax === YARUSY[0];
+      var naIzoterme = S.n === 1, naAdiabate = Math.abs(S.n - g.gamma) < 1e-12;
+      /* и не ставится рядом с точкой 2 */
+      var x2 = v.X(p.V2), y2 = v.Y(p.P2);
+      var mesto = function (x, y) { return !(Math.abs(x - 40 - x2) < 70 && Math.abs(y - 6 - y2) < 26); };
+      var Vm = 43 * LITR, xi = v.X(Vm), yi = v.Y(P1V1 / Vm) - 8, ya = v.Y(p.P1 * Math.pow(p.V1 / Vm, g.gamma)) + 22;
+      prizrak(ctx, v, function (V) { return P1V1 / V; }, ink,
+              metki && !naIzoterme && mesto(xi, yi) ? { x: xi, y: yi, t: 'изотерма' } : null, mut);
+      prizrak(ctx, v, function (V) { return p.P1 * Math.pow(p.V1 / V, g.gamma); }, ink,
+              metki && !naAdiabate && mesto(xi, ya) ? { x: xi, y: ya, t: 'адиабата' } : null, mut);
+    } else {
+      var T = m.T;
+      [[m.Tugly[0], 23], [m.Tugly[1], 23]].forEach(function (q) {
+        var PV0 = NU * R * q[0], Vl = q[1] * LITR;
+        prizrak(ctx, v, function (V) { return PV0 / V; }, ink,
+                { x: v.X(Vl), y: v.Y(PV0 / Vl) - 8, t: num(q[0], 1) + ' К' }, mut);
+      });
+      /* изотерма концов: подпись под кривой, над ней стоит точка 2 */
+      if (S.put !== 2 && !vse) prizrak(ctx, v, function (V) { return P_A * V_A / V; }, ink,
+                { x: v.X(23 * LITR), y: v.Y(P_A * V_A / (23 * LITR)) + 22, t: num(T, 1) + ' К' }, mut);
+    }
+
+    /* площади */
+    var z0 = naHodu(puti[0], S.dolya);
+    puti.forEach(function (p) {
+      var z = naHodu(p, S.dolya);
+      p.otrezki.forEach(function (s, j) {
+        var kmax = j < z.m ? s.K : j === z.m ? z.k : 0;
+        zalivka(ctx, v, s, kmax, vse ? .13 : S.put === 'cikl' && S.rezhim === 'puti' ? .26 : .22);
+      });
+    });
+    /* удвоения объёма: границы и работа каждого */
+    if (S.rezhim === 'politropa' && m.udvoeniya.length > 1 && S.dolya >= 1) {
+      m.udvoeniya.forEach(function (u, b) {
+        var xa = v.X(u.Va), xb = v.X(u.Vb);
+        if (b > 0) {
+          ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.moveTo(xa, v.Y(0)); ctx.lineTo(xa, v.Y(m.P1 * Math.pow(m.V1 / u.Va, m.n))); ctx.stroke(); ctx.restore();
+        }
+        if (Math.abs(xb - xa) >= 62) C.label(ctx, (xa + xb) / 2, v.Y(0) - 14, dzh(u.A) + ' Дж', 17, 'rgb(' + ink + ')');
+      });
+    }
+    /* линии путей */
+    puti.forEach(function (p) {
+      var z = naHodu(p, S.dolya);
+      p.otrezki.forEach(function (s, j) {
+        var kmax = j < z.m ? s.K : j === z.m ? z.k : 0;
+        liniya(ctx, v, s, kmax, ink, !vse);
+      });
+    });
+    /* подписи */
+    if (!vse && S.dolya >= 1) puti[0].otrezki.forEach(function (s) { if (s.znakQ !== 0 || S.rezhim === 'puti') podpisQ(ctx, v, s, ink); });
+    if (S.rezhim === 'politropa' && S.dolya >= 1 && m.otrezki[0].znakQ === 0) {
+      var s1 = m.otrezki[0], kk = Math.floor(s1.K * 0.62);
+      C.label(ctx, v.X(s1.V[kk]) + 12, v.Y(s1.P[kk]) - 12, 'Q = 0', 17, 'rgb(' + ink + ')', 'left');
+    }
+    if (vse) {
+      C.label(ctx, v.X(15 * LITR), v.Y(P_A) - 12, 'путь 1', 17, 'rgb(' + ink + ')');
+      C.label(ctx, v.X(16.5 * LITR) + 6, v.Y(P_A * V_A / (16.5 * LITR)) - 12, 'путь 2', 17, 'rgb(' + ink + ')', 'left');
+      C.label(ctx, v.X(12.5 * LITR), v.Y(P_B) - 12, 'путь 3', 17, 'rgb(' + ink + ')');
+    }
+    if (S.rezhim === 'puti' && S.put === 'cikl' && S.dolya >= 1)
+      C.label(ctx, v.X(15 * LITR), v.Y(150e3) + 6, 'A цикла ' + dzh(m.cikl.A) + ' Дж', 17, 'rgb(' + ink + ')');
+
+    /* начало, конец, нынешняя точка */
+    var p0 = puti[0], s0a = p0.otrezki[0], sK = p0.otrezki[p0.otrezki.length - 1];
+    var xa = v.X(s0a.V[0]), ya = v.Y(s0a.P[0]);
+    var xk = S.rezhim === 'puti' ? v.X(V_B) : v.X(sK.V[sK.K]), yk = S.rezhim === 'puti' ? v.Y(P_B) : v.Y(sK.P[sK.K]);
+    tochka(ctx, xa, ya, 5, 'rgb(' + ink + ')');
+    C.label(ctx, xa - 10, ya - 10, '1', 19, 'rgb(' + ink + ')', 'right');
+    if (Math.hypot(xk - xa, yk - ya) > 4) {
+      tochka(ctx, xk, yk, 5, 'rgb(' + ink + ')');
+      C.label(ctx, xk + 10, yk - 10, '2', 19, 'rgb(' + ink + ')', 'left');
+    }
+    if (S.dolya < 1 || S.idet) {
+      puti.forEach(function (p) {
+        var z = naHodu(p, S.dolya);
+        C.glow(ctx, v.X(z.V), v.Y(z.P), 16, tone.accent, .5);
+        tochka(ctx, v.X(z.V), v.Y(z.P), 6, 'rgb(' + tone.accent + ')');
+      });
+    }
+    return z0;
+  }
+
+  /* ── столбики и показания ── */
+
+  function stolbiki(ctx, z, full, ink) {
+    var ryad = [['A', z.A, full.A, CV_A], ['Q', z.Q, full.Q, full.Q >= 0 ? CV_IN : CV_OUT], ['ΔU', z.dU, full.dU, CV_U]];
+    var mx = 0, mn = 0;
+    ryad.forEach(function (r) { mx = Math.max(mx, r[2]); mn = Math.min(mn, r[2]); });
+    var span = mx - mn || 1, top = 64, bot = 272, y0 = top + (bot - top) * mx / span;
+    ctx.strokeStyle = 'rgba(' + ink + ',.45)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(668, y0); ctx.lineTo(990, y0); ctx.stroke();
+    [720, 830, 940].forEach(function (x, j) {
+      var r = ryad[j], h = r[1] / span * (bot - top);
+      if (Math.abs(h) > 0.5) {
+        ctx.fillStyle = 'rgba(' + r[3] + ',.85)';
+        ctx.fillRect(x - 24, Math.min(y0, y0 - h), 48, Math.abs(h));
+      }
+      C.label(ctx, x, 298, r[0], 19, 'rgb(' + r[3] + ')');
+      C.label(ctx, x, 320, dzh(r[1]) + ' Дж', 17, 'rgb(' + ink + ')');
+    });
+  }
+
+  function tablicaPutej(ctx, m, ink, mut) {
+    var X = [690, 820, 905, 990];
+    C.label(ctx, X[0], 70, 'путь', 17, mut, 'left');
+    C.label(ctx, X[1], 70, 'A, Дж', 17, 'rgb(' + CV_A + ')', 'right');
+    C.label(ctx, X[2], 70, 'Q, Дж', 17, 'rgb(' + CV_IN + ')', 'right');
+    C.label(ctx, X[3], 70, 'ΔU, Дж', 17, 'rgb(' + CV_U + ')', 'right');
+    [1, 2, 3].forEach(function (id, j) {
+      var p = m[id], z = naHodu(p, S.dolya), y = 118 + 46 * j;
+      C.label(ctx, X[0], y, String(id), 19, 'rgb(' + ink + ')', 'left');
+      C.label(ctx, X[1], y, dzh(z.A), 19, 'rgb(' + ink + ')', 'right');
+      C.label(ctx, X[2], y, dzh(z.Q), 19, 'rgb(' + ink + ')', 'right');
+      C.label(ctx, X[3], y, dzh(z.dU), 19, 'rgb(' + ink + ')', 'right');
+    });
+  }
+
+  function pokazaniya(ctx, m, z, tone) {
+    var ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)', RY = 356;
+    if (S.rezhim === 'politropa') {
+      var p = m;
+      C.readout(ctx, 815, RY, S.dolya < 1 ? 'T, К' : 'T₂, К', num(z.T, 1), 'rgb(' + ink + ')');
+      var Cpok = S.dolya >= 1 ? p.C : (Math.abs(z.T - p.T1) < 1e-9 * T_1 ? null : z.Q / (z.T - p.T1));
+      var Ctxt = Cpok == null ? '—' : num(Cpok, 2);
+      C.readout(ctx, 990, RY, 'C, ДЖ/(МОЛЬ·К)', Ctxt, Ctxt.charAt(0) === '−' ? 'rgb(' + CV_OUT + ')' : 'rgb(' + ink + ')');
+      var fA = S.n === Infinity ? 'A = 0: объём стоит' : 'формулой: ' + (S.n === 1 ? 'νRT ln(V₂/V₁) = '
+        : Math.abs(S.n - p.g.gamma) < 1e-12 ? '(P₁V₁ − P₂V₂)/(γ − 1) = ' : '(P₁V₁ − P₂V₂)/(n − 1) = ') + dzh(p.Aformula) + ' Дж';
+      var fC = 'формулой: ' + (S.n === Infinity ? 'C_V = ' + num(p.Cformula, 2) : S.n === 1 ? 'C_V(n − γ)/(n − 1) = ∞'
+        : 'C_V(n − γ)/(n − 1) = ' + num(p.Cformula, 2));
+      nadpisSub(ctx, 990, 420, fA, 17, mut, 'right');
+      nadpisSub(ctx, 990, 444, fC, 17, mut, 'right');
+    } else if (S.put === 'vse') {
+      C.readout(ctx, 990, RY, 'T₁ = T₂, К', num(m.T, 1), 'rgb(' + ink + ')');
+      C.label(ctx, 990, 432, 'концы на одной изотерме', 17, mut, 'right');
+    } else {
+      C.readout(ctx, 815, RY, 'ПОЛУЧЕНО, ДЖ', dzh(z.Qp), 'rgb(' + CV_IN + ')');
+      C.readout(ctx, 990, RY, 'ОТДАНО, ДЖ', dzh(z.Qm), 'rgb(' + CV_OUT + ')');
+      C.label(ctx, 990, 432, S.put === 'cikl' ? 'газ вернулся в состояние 1' : 'концы на изотерме ' + num(m.T, 1) + ' К', 17, mut, 'right');
+    }
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), m = model();
+    var z = diagramma(ctx, m, tone);
+    var p = tekPuti(m)[0];
+    if (S.rezhim === 'puti' && S.put === 'vse') tablicaPutej(ctx, m, tone.ink, 'rgba(' + tone.muted + ',.95)');
+    else stolbiki(ctx, z, { A: p.A, Q: p.Q, dU: p.dU }, tone.ink);
+    pokazaniya(ctx, m, z, tone);
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+
+  function postavitN(n, nabor) {
+    S.n = n; S.nabor = nabor || null; S.dolya = 1; S.idet = false;
+  }
+  function nabor(id) {
+    var g = gaz(S.i);
+    postavitN({ izobara: 0, izoterma: 1, adiabata: g.gamma, izohora: Infinity }[id], id);
+    obnovit();
+  }
+  function dvigatN(v) {
+    var n = v >= N_MAX + 0.025 ? Infinity : Math.round(v * 20) / 20;
+    n = n === Infinity ? n : Math.max(N_MIN, Math.min(N_MAX, n));
+    if (n === S.n) return;
+    var g = gaz(S.i);
+    postavitN(n, n === 0 ? 'izobara' : n === 1 ? 'izoterma' : n === Infinity ? 'izohora' : Math.abs(n - g.gamma) < 1e-12 ? 'adiabata' : null);
+    obnovit();
+  }
+  function dvigatV2(v) {
+    var V2 = Math.round(v * 2) / 2 * LITR;
+    V2 = Math.max(V2_MIN, Math.min(V2_MAX, V2));
+    if (V2 === S.V2) return;
+    S.V2 = V2; S.dolya = 1; S.idet = false; obnovit();
+  }
+  function vybratGaz(i) {
+    S.i = i;
+    if (S.nabor === 'adiabata') S.n = gaz(i).gamma;
+    S.dolya = 1; S.idet = false; obnovit();
+  }
+  function vybratRezhim(r) { S.rezhim = r; S.dolya = 1; S.idet = false; obnovit(); }
+  function vybratPut(id) { S.put = id; S.dolya = 1; S.idet = false; obnovit(); }
+  function pustit() {
+    if (S.idet) { S.idet = false; obnovit(); return; }
+    S.dolya = 0; S.idet = true; obnovit();
+  }
+
+  /* Для автопроверки: __demoSet({ mode, i, n, nabor, V2 (л), path, progress,
+     run }) ставит ручки; __demoModel — куски счёта для сверки и
+     отрицательного контроля. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.mode) S.rezhim = o.mode;
+    if (o.i) { S.i = o.i; if (S.nabor === 'adiabata') S.n = gaz(o.i).gamma; }
+    if (o.nabor) postavitN({ izobara: 0, izoterma: 1, adiabata: gaz(S.i).gamma, izohora: Infinity }[o.nabor], o.nabor);
+    if (o.n != null) postavitN(o.n, null);
+    if (o.V2 != null) S.V2 = o.V2 * LITR;
+    if (o.path != null) S.put = o.path;
+    S.dolya = o.progress != null ? o.progress : 1;
+    S.idet = !!o.run;
+    if (o.run && o.progress == null) S.dolya = 0;
+    obnovit();
+    return pokaz;
+  };
+  window.__demoModel = { gaz: gaz, uzlyPolitropy: uzlyPolitropy, uzlyIzohory: uzlyIzohory, otrezok: otrezok,
+                         put: put, naHodu: naHodu, politropa: politropa, triPuti: triPuti,
+                         R: R, M_UDV: M_UDV, N_IZOH: N_IZOH };
+
+  /* ── строка показаний ── */
+
+  function slovaPolitropy() {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var p = model(), g = p.g, n = S.n, J = function (x) { return A(dzh(x) + ' Дж'); };
+    var ad = Math.abs(n - g.gamma) < 1e-12, rasshir = p.V2 > p.V1, txt;
+    if (S.dolya < 1) {
+      var z = naHodu(p, S.dolya);
+      return 'Поршень идёт: V = ' + litr(z.V) + ' л, P = ' + kPa(z.P) + ' кПа, T = ' + num(z.T, 1) + ' К. Набрано A = ' + dzh(z.A) +
+        ' Дж, ΔU = ' + dzh(z.dU) + ' Дж, Q = ' + dzh(z.Q) + ' Дж.';
+    }
+    if (n !== Infinity && Math.abs(p.V2 - p.V1) < 1e-12) return 'Конец совпал с началом: сдвиньте ползунок конца.';
+    var imya = n === 0 ? 'Изобара, n = 0' : n === 1 ? 'Изотерма, n = 1' : ad ? 'Адиабата, n = γ = ' + num(g.gamma, 2)
+      : n === Infinity ? 'Изохора, n = ∞' : 'Политропа с n = ' + num(n, 2);
+    var T2 = num(p.T2, 1) + ' К';
+    if (n === Infinity) {
+      txt = imya + ': объём стоит, давление ' + (p.P2 < p.P1 ? 'падает' : 'растёт') + ' с ' + kPa(p.P1) + ' до ' + kPa(p.P2) + ' кПа, и газ ' +
+        (p.P2 < p.P1 ? 'остывает' : 'нагревается') + ' до ' + A(T2) + '. Работы нет, и вся теплота идёт во внутреннюю энергию: газ ' +
+        (p.Q < 0 ? 'отдал ' : 'получил ') + J(Math.abs(p.Q)) + '. Теплоёмкость процесса Q/ΔT = ' + A(num(p.C, 2) + ' Дж/(моль·К)') +
+        ', это C_V: изохора замыкает семейство политроп при n → ∞. Ползунок конца у изохоры задаёт давление.';
+    } else {
+      txt = imya + ': газ ' + (rasshir ? 'расширяется' : 'сжимается') + ' с 10 до ' + litr(p.V2) + ' л' +
+        (p.dT === 0 ? ' при постоянной температуре. ' : ', ' + (p.dT > 0 ? 'нагреваясь' : 'остывая') + ' с 300 до ' + A(T2) + '. ');
+      txt += rasshir ? 'Работа газа A = ' + J(p.A) + ', площадь под кривой. '
+        : 'Работа газа отрицательна, A = ' + J(p.A) + ': работу совершают над газом, и площадь закрашена другим цветом. ';
+      if (p.C === null || ad) {
+        txt += 'Теплоты газ не получает и не отдаёт, Q = 0 с точностью счёта: ' +
+          (rasshir ? 'работа идёт целиком из внутренней энергии' : 'работа над газом целиком идёт во внутреннюю энергию') +
+          ', ΔU = ' + J(p.dU) + '. Теплоёмкость процесса ноль. ';
+        if (rasshir && p.V2 === 2 * p.V1) {
+          var Piso = p.P1 * p.V1 / p.V2;
+          txt += 'Адиабата круче изотермы: при ' + litr(p.V2) + ' л давление ' + kPa(p.P2) + ' кПа против ' + kPa(Piso) + ' у изотермы. ';
+        }
+      } else if (p.dT === 0) {
+        txt += 'Внутренняя энергия не меняется, ΔU = 0, и по первому началу Q = A = ' + J(p.Q) + ': ' +
+          (rasshir ? 'вся полученная теплота уходит в работу' : 'вся работа над газом уходит теплотой') +
+          '. Теплоёмкость процесса Q/ΔT бесконечна: теплота идёт, а температура стоит. ';
+      } else {
+        txt += 'Внутренняя энергия ' + (p.dU > 0 ? 'выросла' : 'убыла') + ' на ' + J(Math.abs(p.dU)) + ', и по первому началу Q = ΔU + A = ' + J(p.Q) + '. ';
+        if (p.C < 0) {
+          txt += 'Теплоёмкость процесса отрицательна, Q/ΔT = ' + A(num(p.C, 2) + ' Дж/(моль·К)') + '. Газ ' +
+            (p.Q > 0 ? 'получает теплоту и всё же остывает: работы он совершает больше, чем получает теплоты, и разницу платит внутренней энергией'
+                     : 'отдаёт теплоту и всё же нагревается: работы над ним совершают больше, чем он отдаёт теплоты') +
+            '. Ошибки здесь нет: формула C_V(n − γ)/(n − 1) даёт то же число, и так бывает при n между 1 и γ. ';
+        } else {
+          txt += 'Теплоёмкость процесса Q/ΔT = ' + A(num(p.C, 2) + ' Дж/(моль·К)');
+          if (n === 0) txt += ', это C_P = C_V + R. ';
+          else if (n === -1) txt += ', это C_V + R/2 у процесса P ∝ V. ';
+          else txt += ', как по формуле C_V(n − γ)/(n − 1). ';
+        }
+      }
+      if (p.udvoeniya.length > 1) {
+        var u = p.udvoeniya;
+        if (n === 1 && !u[u.length - 1].chast)
+          txt += 'Каждое удвоение объёма приносит одну и ту же работу, ' + J(u[0].A) +
+            ': во втором удвоении путь поршня вдвое длиннее, а давление вдвое меньше. Поэтому в работе изотермы стоит логарифм отношения объёмов. ';
+        else if (n !== 1)
+          txt += 'По удвоениям объёма работа ' + u.map(function (q) { return dzh(q.A); }).join(', ').replace(/, ([^,]*)$/, ' и $1') + ' Дж' + (u[u.length - 1].chast ? ' (последнее неполное)' : '') +
+            ': ' + (n > 1 ? 'давление падает быстрее, чем у изотермы, и каждое следующее удвоение даёт меньше работы'
+              : n > 0 ? 'давление падает медленнее, чем у изотермы, и каждое следующее удвоение даёт больше работы'
+              : n === 0 ? 'давление стоит, и каждое следующее удвоение вдвое длиннее'
+              : 'давление растёт вместе с объёмом, и каждое следующее удвоение даёт больше работы') + '. ';
+      }
+    }
+    if (g.i === 5 && p.T2 > 1000)
+      txt += 'Температура ушла выше 1000 К, где у воздуха γ уже 1,34 вместо 1,40: демка, как и вывод политропы, держит C_V постоянной.';
+    else if (p.T2 < 100)
+      txt += 'Газ остыл ниже 100 К; настоящий газ при сильном охлаждении сжижается, а модель идеального газа этого не знает.';
+    return txt.replace(/C_([VP])/g, 'C<sub>$1</sub>');
+  }
+
+  function slovaPutej() {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; }, J = function (x) { return A(dzh(x) + ' Дж'); };
+    var m = model(), T = num(m.T, 1) + ' К';
+    if (S.dolya < 1) {
+      var p0 = tekPuti(m)[0], z = naHodu(p0, S.dolya);
+      return 'Поршень идёт: V = ' + litr(z.V) + ' л, P = ' + kPa(z.P) + ' кПа, T = ' + num(z.T, 1) + ' К. Набрано A = ' + dzh(z.A) +
+        ' Дж, ΔU = ' + dzh(z.dU) + ' Дж, Q = ' + dzh(z.Q) + ' Дж.';
+    }
+    var o = function (id, j) { return m[id].otrezki[j]; }, Qs = function (s) { return dzh(Math.abs(s.Q[s.K])) + ' Дж'; };
+    if (S.put === 1)
+      return 'Путь 1: изобара при 200 кПа, затем изохора при 20 л. Работу газ совершает только на изобаре, ' + J(m[1].A) +
+        ', площадь прямоугольника. Теплота по отрезкам идёт в обе стороны: на изобаре газ получает ' + A(Qs(o(1, 0))) + ' и греется до ' +
+        num(m.Tugly[0], 1) + ' К, на изохоре отдаёт ' + A(Qs(o(1, 1))) + ' и остывает до ' + T + '. Концы лежат на одной изотерме, поэтому ΔU = 0 и Q = A = ' + J(m[1].Q) + '.';
+    if (S.put === 2)
+      return 'Путь 2: изотерма ' + T + '. Температура стоит, ΔU = 0 на каждом шаге, и вся полученная теплота уходит в работу: Q = A = ' + J(m[2].A) + ', это νRT ln 2.';
+    if (S.put === 3)
+      return 'Путь 3: изохора при 10 л, затем изобара при 100 кПа. На изохоре газ отдаёт ' + A(Qs(o(3, 0))) + ' и остывает до ' + num(m.Tugly[1], 1) +
+        ' К, на изобаре получает ' + A(Qs(o(3, 1))) + ' и совершает работу ' + J(m[3].A) + '. Итог Q = A = ' + J(m[3].Q) + ' при том же ΔU = 0.';
+    if (S.put === 'vse')
+      return 'Три пути между одними состояниями: работа ' + A(dzh(m[1].A)) + ', ' + A(dzh(m[2].A)) + ' и ' + A(dzh(m[3].A) + ' Дж') +
+        ', теплота столько же, а ΔU = 0 у всех трёх. Внутренняя энергия принадлежит состоянию, работа и теплота переходу: при тех же концах они зависят от пути. ' +
+        'Площадь под путём 3 лежит внутри площади под изотермой, та внутри площади под путём 1.';
+    var c = m.cikl;
+    return 'Туда путём 1, обратно путём 3: газ вернулся в состояние 1, ΔU = 0. Работа за цикл ' + J(c.A) +
+      ', площадь внутри цикла: расширяясь при 200 кПа, газ отдаёт поршню ' + dzh(c.otrezki[0].A[c.otrezki[0].K]) +
+      ' Дж работы, а сжимая газ при 100 кПа, поршень возвращает ему ' + dzh(-c.otrezki[2].A[c.otrezki[2].K]) + ' Дж. Оплачена работа теплотой: газ получил ' + J(c.Qp) + ', отдал ' + dzh(-c.Qm) + ' Дж, разница ' + J(c.Q) +
+      '. Машина, которая давала бы работу на цикле без теплоты, была бы вечным двигателем первого рода.';
+  }
+
+  var pol = S.rezhim === 'politropa', g = gaz(S.i);
+  var nPoz = S.n === Infinity ? N_MAX + 0.05 : S.n;
+  var konecTxt = S.n === Infinity ? kPa(NU * R * T_1 / S.V2) + ' кПа' : litr(S.V2) + ' л';
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Режим:">
+          <${C.Btn} active=${pol} onClick=${function () { vybratRezhim('politropa'); }}>политропы<//>
+          <${C.Btn} active=${!pol} onClick=${function () { vybratRezhim('puti'); }}>три пути<//>
+        <//>
+        ${pol ? html`
+          <${C.Group} label="Процесс:">
+            <${C.Btn} active=${S.nabor === 'izobara'} onClick=${function () { nabor('izobara'); }}>изобара<//>
+            <${C.Btn} active=${S.nabor === 'izoterma'} onClick=${function () { nabor('izoterma'); }}>изотерма<//>
+            <${C.Btn} active=${S.nabor === 'adiabata'} onClick=${function () { nabor('adiabata'); }}>адиабата<//>
+            <${C.Btn} active=${S.nabor === 'izohora'} onClick=${function () { nabor('izohora'); }}>изохора<//>
+          <//>
+          <${C.Slider} label="n:" min=${N_MIN} max=${N_MAX + 0.05} step=${0.05} value=${nPoz}
+                       onChange=${dvigatN} display=${S.n === Infinity ? '∞' : num(S.n, 2)} />
+          <${C.Slider} label="Конец:" min=${V2_MIN / LITR} max=${V2_MAX / LITR} log=${true} value=${S.V2 / LITR}
+                       onChange=${dvigatV2} display=${konecTxt} />` : html`
+          <${C.Group} label="Путь:">
+            <${C.Btn} active=${S.put === 1} onClick=${function () { vybratPut(1); }}>путь 1<//>
+            <${C.Btn} active=${S.put === 2} onClick=${function () { vybratPut(2); }}>путь 2<//>
+            <${C.Btn} active=${S.put === 3} onClick=${function () { vybratPut(3); }}>путь 3<//>
+            <${C.Btn} active=${S.put === 'vse'} onClick=${function () { vybratPut('vse'); }}>все три<//>
+            <${C.Btn} active=${S.put === 'cikl'} onClick=${function () { vybratPut('cikl'); }}>цикл<//>
+          <//>`}
+        <${C.Group} label="Газ:">
+          <${C.Btn} active=${S.i === 3} onClick=${function () { vybratGaz(3); }}>i = 3<//>
+          <${C.Btn} active=${S.i === 5} onClick=${function () { vybratGaz(5); }}>i = 5<//>
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${pustit}>${S.idet ? 'Стоп' : 'Пустить поршень'}<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${pol ? slovaPolitropy() : slovaPutej()} />
+    </div>`;
+}
+
+C.mount(PV);
+</script>
+</body>
+</html>

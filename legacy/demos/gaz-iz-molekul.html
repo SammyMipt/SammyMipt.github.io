@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Газ из молекул: удары о стенку</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-09/">&larr; Неделя 09</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/demo-gaz.js"></script>
+<script src="../shared/analytics.js?demo=gaz-iz-molekul"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html, G = window.DemoGaz;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Вход недели и шаг «Удары о стенку» второго акта девятой недели (бриф
+   briefs/proizvodstvo09.md, раздел «Демки», исполнитель 1; решения автора
+   briefs/lekciya09_resheniya_ramki.md, §1 и §2: лид «Чем больше молекул,
+   тем точнее равновесный газ описывают немногие числа», вход кубиком 1 мкм
+   с ответом этой демкой; карточка 1 описи briefs/lekciya09_demki_minuty.md
+   §1.4; рамка §4, вход и второй акт). Счёт в shared/demo-gaz.js:
+   твёрдые шары событийным счётом, удары упругие, стенки зеркальные.
+
+   ЕДИНИЦЫ МОДЕЛИ. Масса молекулы 1, ребро ящика центров 1, kT₀ = 1, так что
+   v_кв = √3. Для масштаба (опись, карточка 1): 400 молекул воздуха при
+   нормальных условиях занимают кубик 25 нм, и молекула пересекает его за
+   50 пс; на экране единица времени модели идёт две секунды.
+
+   ЧТО СЧИТАЕТСЯ. Формул давления и распределения в счёте нет. Давление на
+   пару стенок есть импульс, отданный им ударами за последнюю единицу
+   времени, делённый на площадь, время и два; столбики показывают его в
+   долях ⅔n⟨ε_пост⟩ = ⅓nm⟨v²⟩, n = N/V. Средняя энергия молекулы здесь вся
+   поступательная, и ⅔⟨ε_пост⟩ есть то, что встреча двух записей давления
+   в главе называет kT; энергия газа сохраняется, поэтому ⅔⟨ε_пост⟩ = 1 всё
+   время. Разброс числа молекул в половине ящика: относительное отклонение
+   числа центров в половине от N/2, средний квадрат по выборкам каждые 0,05
+   единицы с последнего сброса, по трём разрезам ящика (левая половина,
+   нижняя, ближняя: у идеального газа каждый даёт биномиальный счёт и
+   1/√N, а три вместе втрое сокращают шум оценки); полоса над
+   гистограммой рисует левую половину. Разброс давления: окна длиной 0,6
+   единицы, около L/v_кв, последние тридцать. Удары: число ударов о стенки
+   x на единицу площади за единицу времени, по последним двум единицам, в
+   долях n·v_кв, рядом n⟨|vₓ|⟩/2 по нынешним скоростям. Доля летящих к
+   правой стенке: vₓ > 0. Эксцесс ⟨vₓ⁴⟩/⟨vₓ²⟩², у нормального
+   распределения 3; моменты и гистограмма сглажены по 0,25 единицы.
+   Z = P/nkT по манометру в середине стенок и концентрации в середине
+   ящика: у стенки шары лежат гуще, и в ящике с ребром в 15–30 диаметров
+   доля пристеночного слоя заметна. Отступ 1,5d от стенок и рёбер,
+   сглаживание по пяти единицам; рядом Карнахан–Старлинг при η середины.
+   Время свободного пробега τ = 1/(√2·πd²n⟨v⟩χ), χ = (1 − η/2)/(1 − η)³.
+
+   РЕЖИМЫ (карточка 1). «Равновесие»: старт по Максвеллу, импульс центра
+   масс снят, ⟨v²⟩ = 3 ровно. «Все вдоль x»: скорости ±√3 по оси x. «Одна
+   скорость» и «шесть направлений» с тем же ⟨v²⟩ и с выключенными ударами
+   друг о друга: вторая есть модель, по которой «к стенке летит шестая
+   часть молекул», и подписана моделью.
+
+   ПРОВЕРКА (23.10, прогон этого счёта в node, scratchpad demki1/t1–t3.js,
+   и hcheck на порту 49942: __demoSet, __demoTick, чтение __demoState;
+   отчёт briefs/proizvodstvo09_demki-1_REPORT.md). Точечный газ, 4000
+   частиц, 30 единиц: давление на стенки x, y, z 4044, 3864, 4089 у
+   Максвелла, 4072, 3986, 3942 у одной скорости, 4002, 3999, 3999 у шести
+   направлений против ⅓nm⟨v²⟩ = 4000 (опись: 4047, 3963, 3990; 3901, 3980,
+   4122; 4002, 3999, 3999); ударов о единицу площади 1612,6, 1751,5 и
+   1155,2 против n⟨|vₓ|⟩/2 = 1612,1, 1751,1 и 1155,3; доля vₓ > 0 0,508,
+   0,497 и 0,169. Шары 700, η = 0,02, старт вдоль x: через 0,8 τ
+   Pₓ = 1876 против P_y = 147, ⟨v_y²⟩ доходит до 0,9 за 3,8 τ (опись: 4,0),
+   эксцесс 1,26 → 2,63 к 3,8 τ, 2,7–3,2 дальше; без ударов друг о друга
+   P_y = 0 и эксцесс 1,00 всё время. Z по манометру середины против
+   Карнахана–Старлинга при η середины: 1,006 и 1,004 (η = 0,001), 1,039 и
+   1,041 (0,01), 1,080 и 1,084 (0,02), 1,227 и 1,221 (0,05), 1,489 и 1,498
+   (0,1, N = 1600); по всей стенке и среднему n вышло бы 1,463, на 4 %
+   ниже. Разброс числа молекул в левой половине по 4000 выборкам через
+   0,25 единицы, η = 0,001: 19,76; 10,09; 4,90; 2,42 % при N = 25, 100,
+   400, 1600 против 20; 10; 5; 2,5; у плотных шаров меньше: при η = 0,1 и
+   N = 1600 1,63 % против 2,5 %, а сжимаемость Карнахана–Старлинга даёт
+   2,5 % · (1 − η)²/(1 + 2η) = 1,69 %. Учёт энергии (E − E₀)/E₀ не хуже
+   6·10⁻¹⁵ за 10⁵ ударов. */
+
+var CHISLA = [25, 50, 100, 200, 400, 800, 1600];
+var ETA_MIN = 0.001, ETA_MAX = 0.1;
+var SKOROST = 0.5;        /* единиц времени модели за секунду экрана */
+var DT_S = 0.05;          /* шаг выборки показаний, единиц модели */
+var OKNO_P = 20;          /* столбики давления: 20 выборок, единица времени */
+var OKNO_UD = 40;         /* счётчик ударов: две единицы */
+var POLOSA = 400;         /* полоса левой половины: 20 единиц */
+var OKNO_RAZB = 12;       /* окно разброса давления, 0,6 единицы */
+var N_RAZB = 30;          /* окон в разбросе давления */
+var TAU_H = 0.25, TAU_Z = 5;
+var VSPYSHKA = 0.12;      /* сколько светится удар о правую стенку */
+var HB = 45, HV = 4.5;    /* гистограмма: столбиков и предел |vₓ| */
+var REZHIMY = [
+  { id: 'maxwell', knopka: 'равновесие', udary: true },
+  { id: 'vdolX', knopka: 'все вдоль x', udary: true },
+  { id: 'odna', knopka: 'одна скорость', udary: false },
+  { id: 'shest', knopka: 'шесть направлений', udary: false }
+];
+var PO_ID = {};
+REZHIMY.forEach(function (q) { PO_ID[q.id] = q; });
+
+/* Сглаживание со снятым смещением к нулю: сумма весов хранится рядом. */
+function ema(o, k, x, a) {
+  o[k] = (o[k] || 0) * (1 - a) + a * x;
+  o[k + 'W'] = (o[k + 'W'] || 0) * (1 - a) + a;
+  return o[k] / o[k + 'W'];
+}
+function emaV(o, k) { return o[k + 'W'] ? o[k] / o[k + 'W'] : null; }
+
+/* ── модель и выборки ── */
+
+function novyj(p) {
+  var M = { mode: p.mode, N: p.N, eta: p.eta, udary: p.udary, seed: p.seed,
+            buf: new Float64Array(3 * p.N), polosa: [], s2: 0, ns: 0,
+            dimp: [], dhit: [], okna: [], okno: 0, oknoN: 0,
+            lastImp: [0, 0, 0, 0, 0, 0], lastHit: 0, flash: [], midImp: 0,
+            hist: new Float64Array(HB), em: {}, smp: 0 };
+  M.g = G.create({ N: p.N, eta: p.eta, start: p.mode, collisions: p.udary, seed: p.seed,
+    onHit: function (w, j, dp, a, b) {
+      if (a > M.w && a < 1 - M.w && b > M.w && b < 1 - M.w) M.midImp += dp;
+      if (w === 1) { M.flash.push({ t: M.g.t, y: a, z: b }); if (M.flash.length > 300) M.flash.shift(); }
+    } });
+  M.w = 1.5 * M.g.d;
+  vyborka(M, true);
+  return M;
+}
+
+function vyborka(M, nul) {
+  var g = M.g, N = M.N, i, k;
+  if (!nul) g.advance(DT_S);
+  var p = g.pos(M.buf), h = N / 2, w = M.w;
+  var nl = 0, nn = 0, nb = 0, nmid = 0, vx4 = 0, vx2 = 0, k2 = 0, kpos = 0;
+  for (i = 0; i < N; i++) {
+    var x = p[3 * i], y = p[3 * i + 1], z = p[3 * i + 2];
+    if (x < 0.5) nl++;
+    if (y < 0.5) nn++;
+    if (z < 0.5) nb++;
+    if (x > w && x < 1 - w && y > w && y < 1 - w && z > w && z < 1 - w) nmid++;
+    var u = g.vx[i];
+    vx2 += u * u; vx4 += u * u * u * u; if (u > 0) kpos++;
+  }
+  var dl = nl / h - 1;
+  M.polosa.push(dl); if (M.polosa.length > POLOSA) M.polosa.shift();
+  if (nul) return;
+  M.smp++;
+  M.s2 += dl * dl + (nn / h - 1) * (nn / h - 1) + (nb / h - 1) * (nb / h - 1); M.ns += 3;
+  /* импульс стенкам за выборку */
+  var d = [];
+  for (k = 0; k < 6; k++) { d.push(g.imp[k] - M.lastImp[k]); M.lastImp[k] = g.imp[k]; }
+  M.dimp.push(d); if (M.dimp.length > OKNO_P) M.dimp.shift();
+  var hx = g.hits[0] + g.hits[1];
+  M.dhit.push(hx - M.lastHit); M.lastHit = hx; if (M.dhit.length > OKNO_UD) M.dhit.shift();
+  M.okno += d[0] + d[1]; M.oknoN++;
+  if (M.oknoN === OKNO_RAZB) {
+    M.okna.push(M.okno / (2 * OKNO_RAZB * DT_S)); if (M.okna.length > N_RAZB) M.okna.shift();
+    M.okno = 0; M.oknoN = 0;
+  }
+  /* сглаженные моменты, гистограмма, манометр середины */
+  var aH = DT_S / TAU_H, aZ = DT_S / TAU_Z;
+  ema(M.em, 'vx2', vx2 / N, aH); ema(M.em, 'vx4', vx4 / N, aH);
+  M.kpos = kpos / N;
+  var bw = 2 * HV / HB, cnt = new Float64Array(HB);
+  for (i = 0; i < N; i++) {
+    var b = Math.floor((g.vx[i] + HV) / bw);
+    if (b >= 0 && b < HB) cnt[b] += 1;
+  }
+  for (b = 0; b < HB; b++) M.hist[b] = M.hist[b] * (1 - aH) + aH * cnt[b] / (N * bw);
+  M.histW = (M.histW || 0) * (1 - aH) + aH;
+  var a1 = 1 - 2 * w;
+  if (a1 > 0 && g.collisions) {
+    ema(M.em, 'pmid', M.midImp / (6 * a1 * a1 * DT_S), aZ);
+    ema(M.em, 'nmid', nmid / (a1 * a1 * a1), aZ);
+  }
+  M.midImp = 0;
+}
+
+/* Показания из выборок: то, что демка утверждает. */
+function pokazaniya(M) {
+  var g = M.g, N = M.N, E = g.energy(), kT = 2 * E / (3 * N), V = 1, n = N / V;
+  var Pkin = n * kT;                    /* ⅔ n⟨ε_пост⟩ = ⅓ nm⟨v²⟩ */
+  var P = [0, 0, 0], k, j, s;
+  for (j = 0; j < M.dimp.length; j++) for (k = 0; k < 3; k++) P[k] += M.dimp[j][2 * k] + M.dimp[j][2 * k + 1];
+  var Tw = M.dimp.length * DT_S;
+  for (k = 0; k < 3; k++) P[k] = Tw ? P[k] / (2 * Tw) : null;
+  var hits = 0; for (j = 0; j < M.dhit.length; j++) hits += M.dhit[j];
+  var vkv = Math.sqrt(2 * E / N), avx = 0;
+  for (j = 0; j < N; j++) avx += Math.abs(g.vx[j]);
+  avx /= N;
+  var hitRate = M.dhit.length ? hits / (2 * M.dhit.length * DT_S) / (n * vkv) : null;
+  var ps = null;
+  if (M.okna.length >= 5) {
+    var mu = 0, s2 = 0;
+    M.okna.forEach(function (q) { mu += q; }); mu /= M.okna.length;
+    M.okna.forEach(function (q) { s2 += (q - mu) * (q - mu); });
+    ps = Math.sqrt(s2 / (M.okna.length - 1)) / mu;
+  }
+  var vx2 = emaV(M.em, 'vx2'), vx4 = emaV(M.em, 'vx4');
+  var pm = emaV(M.em, 'pmid'), nm = emaV(M.em, 'nmid'), d = g.d;
+  var etaMid = nm != null ? nm * Math.PI * d * d * d / 6 : null;
+  var vsr = Math.sqrt(8 * kT / Math.PI);
+  var tau = g.collisions ? 1 / (Math.SQRT2 * Math.PI * d * d * n * vsr * G.chi(M.eta)) : null;
+  return {
+    mode: M.mode, N: N, eta: M.eta, d: d, collisions: g.collisions, kT: kT, eTrans: E / N,
+    P: P, Pkin: Pkin, Pideal: n * kT, Prel: P.map(function (q) { return q == null ? null : q / Pkin; }),
+    Z: pm != null && nm ? pm / (nm * kT) : null, Zcs: etaMid != null ? G.zCS(etaMid) : null, etaMid: etaMid,
+    hitRate: hitRate, hitTheory: avx / (2 * vkv), fracToWall: M.kpos,
+    pScatter: ps, halfScatter: M.ns ? Math.sqrt(M.s2 / M.ns) : null, invSqrtN: 1 / Math.sqrt(N),
+    kurtosis: vx2 ? vx4 / (vx2 * vx2) : null, vx2: vx2, nMid: N * Math.pow(Math.max(0, 1 - 2 * M.w), 3),
+    tauFree: tau, t: g.t, tTau: tau ? g.t / tau : null, samples: M.smp,
+    drift: g.drift(), nColl: g.nColl, nEv: g.nEv
+  };
+}
+
+/* Русская запятая и настоящий минус. */
+function num(v, dd) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -dd)) v = 0;
+  return v.toFixed(dd).replace('.', ',').replace('-', '−');
+}
+function proc(v, dd) { return v == null ? '—' : num(100 * v, dd == null ? 1 : dd) + ' %'; }
+
+/* ══════════════════ сцена ══════════════════
+
+   Слева ящик сбоку: центр шара рисуется в проекции на плоскость xy,
+   дальние шары бледнее; стенка нарисована на радиус шара дальше центров.
+   Удар о правую стенку вспыхивает на ней. Пунктир делит ящик пополам.
+   Посередине столбики давления на три пары стенок в долях ⅔n⟨ε_пост⟩.
+   Справа сверху полоса: отклонение числа молекул в левой половине от N/2
+   за последние 20 единиц, пунктиром ±1/√N; под ней гистограмма vₓ и
+   нормальная кривая той же дисперсии. Внизу показания. */
+
+var W = 1000, HGT = 460;
+var BX = 42, BY = 60, B = 260;                  /* ящик центров */
+var PX = 372, PY0 = 320, PK = 80;               /* столбики: ось, ноль, пикселей на единицу */
+var SX0 = 575, SX1 = 980, SY0 = 44, SY1 = 164;  /* полоса */
+var HX0 = 575, HX1 = 980, HY0 = 214, HY1 = 330; /* гистограмма */
+var CM = '77,182,198';                          /* молекулы */
+var CP = '224,138,82';                          /* давление */
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function Gaz() {
+  var box = useRef(null);
+  if (!box.current) {
+    var p0 = { mode: 'maxwell', N: 400, eta: 0.01, udary: true, seed: (Math.random() * 4294967296) >>> 0 };
+    box.current = { p: p0, M: novyj(p0), nakop: 0, iN: 4 };
+  }
+  var S = box.current;
+  var pair = useState({ n: 0 });
+  var setUi = pair[1];
+  var ui = useRef({ last: 0 });
+
+  function snyat() {
+    var q = pokazaniya(S.M);
+    for (var k in pokaz) delete pokaz[k];
+    Object.assign(pokaz, q);
+  }
+  if (pokaz.N == null) snyat();
+
+  function zanovo(o) {
+    Object.assign(S.p, o || {});
+    if (!o || o.seed == null) S.p.seed = (Math.random() * 4294967296) >>> 0;
+    S.M = novyj(S.p); S.nakop = 0;
+    snyat(); setUi(function (u) { return { n: u.n + 1 }; });
+  }
+
+  function step(dt) {
+    S.nakop += dt * SKOROST;
+    var k = 0;
+    while (S.nakop >= DT_S && k < 40) { vyborka(S.M); S.nakop -= DT_S; k++; }
+    if (k === 40) S.nakop = 0;
+    snyat();
+    /* строку под сценой обновляем пару раз в секунду, а не каждый кадр */
+    ui.current.last += dt;
+    if (ui.current.last > 0.5) { ui.current.last = 0; setUi(function (u) { return { n: u.n + 1 }; }); }
+  }
+
+  /* ── рисунок ── */
+
+  function sub(ctx, x, y, a, s, b, size, color, align) {
+    /* строка с нижним индексом: a, затем s мельче и ниже, затем b */
+    ctx.font = size + 'px "Golos Text", system-ui, sans-serif';
+    var wa = ctx.measureText(a).width, wb = ctx.measureText(b).width;
+    ctx.font = Math.round(size * 0.7) + 'px "Golos Text", system-ui, sans-serif';
+    var ws = ctx.measureText(s).width, wt = wa + ws + wb;
+    var x0 = align === 'left' ? x : align === 'right' ? x - wt : x - wt / 2;
+    C.label(ctx, x0, y, a, size, color, 'left');
+    C.label(ctx, x0 + wa, y + size * 0.25, s, Math.round(size * 0.7), color, 'left');
+    C.label(ctx, x0 + wa + ws, y, b, size, color, 'left');
+  }
+
+  function yashchik(ctx, M, ink, mut, acc) {
+    var g = M.g, N = M.N, rB = Math.max(1.6, g.d / 2 * B), p = g.pos(M.buf), i, L;
+    var wx0 = BX - g.d / 2 * B, wy0 = BY - g.d / 2 * B, wl = B + g.d * B;
+    ctx.strokeStyle = 'rgba(' + ink + ',.75)'; ctx.lineWidth = 2;
+    ctx.strokeRect(wx0, wy0, wl, wl);
+    ctx.save(); ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(' + mut + ',.7)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(BX + B / 2, wy0 + 2); ctx.lineTo(BX + B / 2, wy0 + wl - 2); ctx.stroke(); ctx.restore();
+    /* шесть слоёв по глубине, от дальнего к ближнему */
+    for (L = 0; L < 6; L++) {
+      ctx.fillStyle = 'rgba(' + CM + ',' + (0.3 + 0.13 * L).toFixed(2) + ')';
+      ctx.beginPath();
+      for (i = 0; i < N; i++) {
+        var z = p[3 * i + 2], lay = Math.min(5, Math.floor(z * 6));
+        if (lay !== L) continue;
+        var X = BX + p[3 * i] * B, Y = BY + (1 - p[3 * i + 1]) * B;
+        ctx.moveTo(X + rB, Y); ctx.arc(X, Y, rB, 0, 2 * Math.PI);
+      }
+      ctx.fill();
+    }
+    /* вспышки ударов о правую стенку */
+    var xr = wx0 + wl;
+    ctx.lineWidth = 4; ctx.lineCap = 'round';
+    M.flash.forEach(function (f) {
+      var age = g.t - f.t;
+      if (age > VSPYSHKA || age < 0) return;
+      var Y = BY + (1 - f.y) * B;
+      ctx.strokeStyle = 'rgba(' + acc + ',' + (1 - age / VSPYSHKA).toFixed(2) + ')';
+      ctx.beginPath(); ctx.moveTo(xr, Y - 6); ctx.lineTo(xr, Y + 6); ctx.stroke();
+    });
+    ctx.lineCap = 'butt';
+    C.label(ctx, BX + B / 2, 28, N + ' ' + C.plural(N, 'молекула', 'молекулы', 'молекул') + ', вид сбоку', 17, 'rgba(' + mut + ',.95)');
+  }
+
+  function stolbiki(ctx, q, ink, mut) {
+    var i;
+    C.label(ctx, 432, 28, 'давление на стенки', 17, 'rgba(' + mut + ',.95)');
+    sub(ctx, 432, 50, 'в долях ⅔n⟨ε', 'пост', '⟩', 17, 'rgba(' + mut + ',.95)', 'center');
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PX, PY0); ctx.lineTo(PX + 128, PY0); ctx.moveTo(PX, PY0); ctx.lineTo(PX, PY0 - 3.2 * PK); ctx.stroke();
+    for (i = 0; i <= 3; i++) C.label(ctx, PX - 6, PY0 - i * PK + 6, String(i), 17, 'rgba(' + mut + ',.95)', 'right');
+    ['x', 'y', 'z'].forEach(function (s, k) {
+      var v = q.Prel[k], x0 = PX + 13 + 40 * k;
+      if (v != null) {
+        var hh = Math.min(3.2, Math.max(0, v)) * PK;
+        ctx.fillStyle = 'rgba(' + CP + ',.8)'; ctx.fillRect(x0, PY0 - hh, 28, hh);
+      }
+      C.label(ctx, x0 + 14, PY0 + 22, s, 17, 'rgba(' + ink + ',.9)');
+    });
+    ctx.save(); ctx.setLineDash([6, 4]); ctx.strokeStyle = 'rgba(' + ink + ',.85)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(PX, PY0 - PK); ctx.lineTo(PX + 128, PY0 - PK); ctx.stroke(); ctx.restore();
+  }
+
+  function polosa(ctx, M, q, ink, mut, acc) {
+    var mid = (SY0 + SY1) / 2, hh = (SY1 - SY0) / 2, k = hh / 0.5, a = M.polosa, i;
+    C.label(ctx, SX0, 28, 'молекул в левой половине: отклонение от N/2', 17, 'rgba(' + mut + ',.95)', 'left');
+    C.label(ctx, SX0 - 7, SY0 + 6, '+50 %', 17, 'rgba(' + mut + ',.95)', 'right');
+    C.label(ctx, SX0 - 7, mid + 6, '0', 17, 'rgba(' + mut + ',.95)', 'right');
+    C.label(ctx, SX0 - 7, SY1 + 6, '−50 %', 17, 'rgba(' + mut + ',.95)', 'right');
+    ctx.strokeStyle = 'rgba(' + ink + ',.35)'; ctx.lineWidth = 1;
+    ctx.strokeRect(SX0, SY0, SX1 - SX0, SY1 - SY0);
+    ctx.beginPath(); ctx.moveTo(SX0, mid); ctx.lineTo(SX1, mid); ctx.stroke();
+    var e = q.invSqrtN * k;
+    ctx.save(); ctx.setLineDash([6, 4]); ctx.strokeStyle = 'rgba(' + acc + ',.95)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(SX0, mid - e); ctx.lineTo(SX1, mid - e); ctx.moveTo(SX0, mid + e); ctx.lineTo(SX1, mid + e); ctx.stroke(); ctx.restore();
+    C.label(ctx, SX1 - 6, Math.max(SY0 + 18, mid - e - 6), '±1/√N', 17, 'rgb(' + acc + ')', 'right');
+    ctx.strokeStyle = 'rgb(' + CM + ')'; ctx.lineWidth = 1.8; ctx.beginPath();
+    var dx = (SX1 - SX0) / POLOSA, x0 = SX1 - (a.length - 1) * dx;
+    for (i = 0; i < a.length; i++) {
+      var y = mid - Math.max(-0.5, Math.min(0.5, a[i])) * k;
+      if (i) ctx.lineTo(x0 + i * dx, y); else ctx.moveTo(x0, y);
+    }
+    ctx.stroke();
+  }
+
+  function gisto(ctx, M, q, ink, mut) {
+    var bw = 2 * HV / HB, sx = (HX1 - HX0) / (2 * HV), b;
+    var s2 = q.vx2 || 1, top = 1.6 / Math.sqrt(2 * Math.PI * Math.min(s2, 1));
+    var ky = (HY1 - HY0) / top, Wn = M.histW || 1;
+    C.label(ctx, HX0, HY0 - 16, 'распределение vₓ и Гаусс той же дисперсии', 17, 'rgba(' + mut + ',.95)', 'left');
+    ctx.fillStyle = 'rgba(' + CM + ',.55)';
+    for (b = 0; b < HB; b++) {
+      var hv = M.hist[b] / Wn, hp = Math.min(HY1 - HY0, hv * ky);
+      if (hp > 0.5) ctx.fillRect(HX0 + b * bw * sx + 1, HY1 - hp, bw * sx - 2, hp);
+    }
+    ctx.strokeStyle = 'rgba(' + ink + ',.9)'; ctx.lineWidth = 2; ctx.beginPath();
+    for (var i = 0; i <= 200; i++) {
+      var v = -HV + 2 * HV * i / 200, f = Math.exp(-v * v / (2 * s2)) / Math.sqrt(2 * Math.PI * s2);
+      var X = HX0 + (v + HV) * sx, Y = HY1 - Math.min(HY1 - HY0, f * ky);
+      if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(HX0, HY1); ctx.lineTo(HX1, HY1); ctx.stroke();
+    [-3, 0, 3].forEach(function (v) { C.label(ctx, HX0 + (v + HV) * sx, HY1 + 20, num(v, 0), 17, 'rgba(' + mut + ',.95)'); });
+    C.label(ctx, HX1, HY1 + 20, 'vₓ', 17, 'rgba(' + mut + ',.95)', 'right');
+  }
+
+  function stroka(ctx, q, ink, mut) {
+    var Y = 384, m = 'rgba(' + mut + ',.95)', shest = q.mode === 'shest';
+    C.readout(ctx, 190, Y, 'РАЗБРОС N/2', proc(q.halfScatter), 'rgb(' + CM + ')');
+    C.label(ctx, 190, Y + 66, '1/√N = ' + proc(q.invSqrtN), 17, m, 'right');
+    C.readout(ctx, 390, Y, 'ЛЕТЯТ К СТЕНКЕ', num(q.fracToWall, 2), 'rgb(' + ink + ')');
+    C.label(ctx, 390, Y + 66, shest ? 'модель: шестая часть' : 'доля с vₓ > 0', 17, m, 'right');
+    C.readout(ctx, 590, Y, 'УДАРЫ / n√⟨v²⟩', num(q.hitRate, 3), 'rgb(' + CP + ')');
+    C.label(ctx, 590, Y + 66, 'n⟨|vₓ|⟩/2: ' + num(q.hitTheory, 3), 17, m, 'right');
+    C.readout(ctx, 790, Y, 'ЭКСЦЕСС vₓ', num(q.kurtosis, 2), 'rgb(' + ink + ')');
+    C.label(ctx, 790, Y + 66, 'у Гаусса 3', 17, m, 'right');
+    var zOk = q.collisions && q.Z != null && q.nMid >= 50;
+    C.readout(ctx, 990, Y, 'Z = P/nkT', zOk ? num(q.Z, 3) : '—', 'rgb(' + ink + ')');
+    C.label(ctx, 990, Y + 66, zOk ? 'КС: ' + num(q.Zcs, 3) : q.collisions ? 'мало молекул в середине' : 'шары не сталкиваются', 17, m, 'right');
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted, acc = tone.accent;
+    var q = pokaz;
+    if (q.N == null) return;
+    yashchik(ctx, S.M, ink, mut, acc);
+    stolbiki(ctx, q, ink, mut);
+    polosa(ctx, S.M, q, ink, mut, acc);
+    gisto(ctx, S.M, q, ink, mut);
+    stroka(ctx, q, ink, mut);
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+
+  function vybrat(id) { zanovo({ mode: id, udary: PO_ID[id].udary }); }
+  function udary() {
+    S.p.udary = !S.p.udary;
+    S.M.g.setCollisions(S.p.udary);
+    S.M.udary = S.p.udary;
+    snyat(); setUi(function (u) { return { n: u.n + 1 }; });
+  }
+  function dvigatN(v) {
+    var i = Math.max(0, Math.min(CHISLA.length - 1, Math.round(v)));
+    if (CHISLA[i] === S.p.N) return;
+    zanovo({ N: CHISLA[i] });
+  }
+  function dvigatEta(v) {
+    var e = Math.round(Math.max(ETA_MIN, Math.min(ETA_MAX, v)) * 1000) / 1000;
+    if (e === S.p.eta) return;
+    zanovo({ eta: e });
+  }
+
+  /* Для автопроверки: __demoSet({ mode, N, eta, udary, seed }) пересоздаёт
+     газ (udary без mode переключает удары на ходу); __demoModel отдаёт
+     модель и счёт показаний. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.mode || o.N || o.eta || o.seed != null) {
+      var p = {};
+      if (o.mode) { p.mode = o.mode; p.udary = PO_ID[o.mode].udary; }
+      if (o.N) p.N = o.N;
+      if (o.eta) p.eta = o.eta;
+      if (o.udary != null) p.udary = !!o.udary;
+      if (o.seed != null) p.seed = o.seed;
+      zanovo(p);
+    } else if (o.udary != null && !!o.udary !== S.p.udary) udary();
+    return pokaz;
+  };
+  window.__demoModel = { G: G, get M() { return S.M; }, novyj: novyj, vyborka: vyborka, pokazaniya: pokazaniya,
+                         DT_S: DT_S, SKOROST: SKOROST, CHISLA: CHISLA };
+
+  /* ── строка под сценой ── */
+
+  function slova() {
+    var q = pokaz, A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var eps = '⅔n⟨ε<sub>пост</sub>⟩';
+    var P = q.Prel.map(function (v) { return num(v, 2); }).join(', ');
+    var tt = q.tTau != null ? ' (' + num(q.tTau, 0) + ' τ, где τ есть время свободного пробега)' : '';
+    var txt;
+    if (q.mode === 'vdolX') {
+      txt = 'Все молекулы стартовали вдоль оси x с одной скоростью: давление на стенки x было втрое выше ' + eps +
+        ', на стенки y и z нулевым, эксцесс vₓ равен единице. ';
+      txt += q.collisions
+        ? 'Удары друг о друга перемешивают направления, и сейчас, через ' + num(q.t, 1) + ' единицы времени' + tt +
+          ', давления на три пары стенок в долях ' + eps + ' равны ' + A(P) + ', эксцесс ' + A(num(q.kurtosis, 2) + '') +
+          ' (у гауссова колокола 3). Газ сам пришёл в равновесие, и для этого ему понадобились столкновения: выключите их, и всё останется как на старте.'
+        : 'Удары друг о друга выключены, и газ остаётся как был: давления ' + A(P) + ', эксцесс ' + A(num(q.kurtosis, 2)) +
+          '. Без столкновений молекулы только отражаются от стенок, и равновесие не наступает.';
+      return txt;
+    }
+    if (q.mode === 'odna' || q.mode === 'shest') {
+      txt = q.mode === 'odna'
+        ? 'Все молекулы летят с одной скоростью, направления во все стороны поровну; средний квадрат скорости тот же, что у равновесного газа. '
+        : 'Модель шести направлений: шестая часть молекул летит вдоль +x, шестая вдоль −x, и так по каждой оси, с тем же средним квадратом скорости. ';
+      txt += 'Давление по ударам в долях ' + eps + ' равно ' + A(P) + ': ⅓nm⟨v²⟩ не зависит от распределения. ';
+      txt += q.mode === 'odna'
+        ? 'А ударов о стенку на единицу площади за единицу времени ' + A(num(q.hitRate, 3)) + ' n√⟨v²⟩, больше, чем у равновесного газа (0,230): к стенке летит половина молекул, ' + A(num(q.fracToWall, 2)) + '.'
+        : 'А ударов ' + A(num(q.hitRate, 3)) + ' n√⟨v²⟩: к правой стенке летит ' + A(num(q.fracToWall, 2)) +
+          ' молекул, тогда как у настоящего газа половина, и ударов у одной скорости 0,250, у равновесного 0,230. Формула давления с «шестой частью молекул» верна, потому что каждая третья молекула летит вдоль x с полным v²; картина за ней не верна.';
+      if (q.collisions) txt += ' Удары друг о друга включены, и распределение уходит к равновесному.';
+      else txt += ' Удары друг о друга здесь выключены: со столкновениями газ ушёл бы к равновесию.';
+      return txt;
+    }
+    txt = q.N + ' ' + C.plural(q.N, 'молекула', 'молекулы', 'молекул') + ' в ящике, удары упругие. Давление демка собирает из ударов: импульс, отданный стенкам, делённый на площадь и время; в долях ' +
+      eps + ' на три пары стенок оно ' + A(P) + (q.pScatter != null ? ' и от окна к окну дрожит на ' + proc(q.pScatter, 0) : '') + '. Число молекул в половине ящика дрожит около N/2 на ' + A(proc(q.halfScatter)) +
+      ', а 1/√N = ' + proc(q.invSqrtN) + '. Двигайте ползунок числа молекул: при 25 дрожь около 20 %, при 1600 около 2,5 %, и в кубике воздуха с ребром 1 мкм, где молекул 2,7·10⁷, она была бы 2·10⁻⁴. ';
+    if (q.collisions && q.Z != null && q.nMid >= 50) {
+      txt += q.eta >= 0.02
+        ? 'Шары занимают ' + proc(q.eta, 1) + ' объёма, и давление выше nkT в ' + A(num(q.Z, 2)) + ' раза, как у твёрдых шаров по формуле Карнахана–Старлинга (' + num(q.Zcs, 2) + '): здесь размер молекул уже нельзя не учитывать. Ударов о стенку тоже больше, чем n⟨|vₓ|⟩/2, потому что у стенки шары лежат гуще, а разброс числа молекул в половине меньше 1/√N: шары мешают друг другу собираться. У воздуха при нормальных условиях молекулы занимают около тысячной доли объёма.'
+        : 'Шары занимают ' + proc(q.eta, 1) + ' объёма, и давление выше nkT всего в ' + A(num(q.Z, 3)) + ' раза. ⅔⟨ε<sub>пост</sub>⟩ здесь есть то, что встреча двух записей давления называет kT.';
+    } else if (!q.collisions) txt += 'Удары друг о друга выключены: такой газ давит так же, но из неравновесного старта в равновесие не придёт.';
+    return txt;
+  }
+
+  var iN = CHISLA.indexOf(S.p.N);
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Старт:">
+          ${REZHIMY.map(function (q) {
+            return html`<${C.Btn} key=${q.id} active=${S.p.mode === q.id} onClick=${function () { vybrat(q.id); }}>${q.knopka}<//>`; })}
+        <//>
+        <${C.Group}>
+          <${C.Btn} active=${S.p.udary} onClick=${udary}>удары друг о друга<//>
+        <//>
+        <${C.Slider} label="Молекул:" min=${0} max=${CHISLA.length - 1} step=${1} value=${iN}
+                     onChange=${dvigatN} display=${String(S.p.N)} />
+        <${C.Slider} label="Доля объёма:" log=${true} min=${ETA_MIN} max=${ETA_MAX} value=${S.p.eta}
+                     onChange=${dvigatEta} display=${num(S.p.eta, 3)} />
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${function () { zanovo(); }}>Заново<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Gaz);
+</script>
+</body>
+</html>

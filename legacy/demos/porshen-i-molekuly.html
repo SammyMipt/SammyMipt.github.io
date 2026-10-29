@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Поршень и молекулы: адиабата и пустота</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-09/">&larr; Неделя 09</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/demo-gaz.js"></script>
+<script src="../shared/analytics.js?demo=porshen-i-molekuly"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html, G = window.DemoGaz;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Шаг «Медленный процесс» третьего акта девятой недели и ответ на вопрос
+   перерыва о газе в пустоте (бриф briefs/proizvodstvo09.md, раздел
+   «Демки», исполнитель 1; решения автора briefs/lekciya09_resheniya_ramki.md,
+   §2 и «Принято», п. 6 и 9; карточка 2 описи
+   briefs/lekciya09_demki_minuty.md §1.4; рамка §4, шаг «Медленный
+   процесс»). Счёт в shared/demo-gaz.js, тот же газ твёрдых шаров, что в
+   демке «Газ из молекул».
+
+   ОПЫТ. 400 шаров, доля объёма в начале η₁ = 0,003, ящик центров 1×1×1,
+   правая стенка есть поршень. Кнопка пускает его с постоянной скоростью u,
+   и он уходит, пока объём не удвоится, X: 1 → 2. Удар о поршень упругий в
+   системе поршня, v_x′ = 2u − v_x; молекула медленнее поршня его не
+   догоняет. Работа над поршнем набирается по ударам, ½m(v_x² − v_x′²) за
+   удар, а не по формуле. Скорость поршня задаётся в долях v_кв начального
+   газа, от 0,003 до 3. «Стенки тёплые»: неподвижные стенки отражают
+   диффузно, со скоростями при начальной температуре (модель теплообмена,
+   а не атомы стенки); поршень остаётся зеркальным. Единицы: масса молекулы
+   1, kT₁ = 1, v_кв = √3.
+
+   ЧТО ПОКАЗАНО. T₂/T₁ есть отношение ⅔⟨ε_пост⟩ после остановки поршня к
+   начальному, то есть E₂/E₁ (энергия вся поступательная); работа, убыль
+   энергии и теплота от стенок на молекулу, в kT₁, снятые в момент
+   остановки поршня. Справа плоскость pV: давление на поршень, средний
+   импульс за окно в 1/50 хода, против объёма, в долях начальных; через
+   начальную точку изотерма pV = const и адиабата одноатомного газа
+   pV^(5/3) = const. Для сравнения, в счёт не входят: адиабата
+   2^(−2/3) = 0,630, с поправкой на размер шаров (Z = 1 + 4η, η ∝ 1/V)
+   exp(−⅔(ln 2 + 2η₁)) = 0,627; её работа 1,5(1 − 0,630) = 0,555 kT₁;
+   изотерма ln 2 = 0,693 kT₁. «Рядом» пускает сразу три опыта: медленный
+   (0,01 v_кв), быстрый (3 v_кв) и медленный с тёплыми стенками.
+
+   ЭКРАН. Ход поршня идёт на экране около 15 секунд, но не быстрее 0,15 и
+   не медленнее 14 единиц времени модели в секунду; после остановки газ
+   живёт дальше с той же скоростью.
+
+   ПРОВЕРКА (23.10, прогон этого счёта в node, scratchpad demki1/t4–t7.js,
+   и hcheck на порту 49942: __demoSet, __demoTick, чтение __demoState;
+   отчёт briefs/proizvodstvo09_demki-1_REPORT.md). Шары, η₁ = 0,003,
+   N = 400: E₂/E₁ при u/v_кв = 0,01 по пяти зёрнам 0,635, 0,633, 0,634,
+   0,635, 0,634 (и 0,636, 0,636, 0,629, 0,632 по четырём другим), при
+   0,005 0,6315 ± 0,0017, при 0,003 0,6315 ± 0,0007; адиабата 0,630, с
+   поправкой на размер 0,627 (опись по шагу 0,625 при 0,0115). Остаток
+   около 0,004 над поправленной адиабатой не разобран. Скорость поршня
+   0,03; 0,1; 0,3; 0,6; 1; 2; 3 v_кв: 0,646; 0,672; 0,745; 0,893; 0,981;
+   1,000; 1,000, работа на молекулу от 0,527 до нуля: быстрый поршень
+   работы не получает, и газ не остывает (опись: 0,649; 0,714; 0,879;
+   0,998; 1,000 при 0,12; 0,29; 0,58; 1,15; 2,89). Работа по ударам
+   равна убыли энергии до 3·10⁻¹⁵ (учёт). Отрицательный контроль: точки без
+   ударов друг о друга, 3000 штук, u = 0,02: 0,744 вместо 0,630, ⟨v_x²⟩
+   падает до 0,256, поперечные не меняются (0,965), это одномерная
+   адиабата (опись: 0,751). Тёплые стенки, u = 0,01 v_кв: работа 0,684
+   против ln 2 = 0,693, теплота 0,624; при 0,003 работа 0,689, теплота
+   0,652; температура газа у тёплых стенок дрожит на √(2/3N), около 4 %
+   при 400 молекулах, и в среднем за 100 единиц равна температуре стенок
+   до 0,3 %. Медленный проход: 2,7·10⁵ событий, 1,2·10⁴ ударов шаров, 58
+   времён свободного пробега на молекулу. */
+
+var N = 400, ETA1 = 0.003;
+var U_MIN = 0.003, U_MAX = 3, U_SLOW = 0.01, U_FAST = 3;   /* в долях v_кв */
+var VKV = Math.sqrt(3);
+var OKON = 50;                       /* окон давления на ход поршня */
+var POSLE = 12;                      /* окон после остановки, не короче 0,5 */
+var R_AD = Math.pow(2, -2 / 3);
+var R_ADC = Math.exp(-2 / 3 * (Math.log(2) + 2 * ETA1));
+var W_AD = 1.5 * (1 - R_AD), W_ISO = Math.log(2);
+var OPYTY = [
+  { id: 'slow', imya: 'медленный', u: U_SLOW, warm: false, cvet: '77,182,198' },
+  { id: 'fast', imya: 'быстрый', u: U_FAST, warm: false, cvet: '224,138,82' },
+  { id: 'warm', imya: 'медленный, стенки тёплые', u: U_SLOW, warm: true, cvet: '150,200,110' }
+];
+
+/* ── опыт ── */
+
+function opyt(p) {
+  var M = { u: p.u, udary: p.udary, warm: p.warm, cvet: p.cvet || '77,182,198', imya: p.imya || '',
+            run: false, done: false, tStart: 0, tStop: Infinity, wP: 0, tWin: Infinity, nWin: 0,
+            impLast: 0, Xlast: 1, pv: [], stop: null, buf: new Float64Array(3 * N) };
+  M.g = G.create({ N: N, eta: ETA1, X: 1, Xmax: 2, collisions: p.udary, warm: p.warm, seed: p.seed });
+  return M;
+}
+function pustit(M) {
+  if (M.run) return;
+  var g = M.g, uM = M.u * VKV;
+  g.startPiston(uM, 2);
+  M.run = true; M.tStart = g.t; M.tStop = g.t + 1 / uM; M.tAvg = g.t + 0.8 / uM; M.eSum = 0; M.tSum = 0;
+  M.wP = Math.max(0.004, (1 / uM) / OKON); M.tWin = g.t + M.wP; M.impLast = g.imp[1]; M.Xlast = 1;
+}
+function snyatOstanovku(M) {
+  var g = M.g, t0 = M.tWin - M.wP;
+  M.done = true;
+  /* у тёплых стенок энергия газа дрожит на √(2/3N), около 4 %: T₂ берётся
+     средней по последней пятой части хода */
+  var r = M.warm && M.tSum > 0 ? M.eSum / M.tSum / g.E0 : g.energy() / g.E0;
+  M.stop = { ratio: r, W: g.W / N, Q: g.Q / N, dE: (g.E0 - g.energy()) / N, t: g.t - M.tStart };
+  /* недобранное окно хода закрывается точкой, если набрало треть длины */
+  if (g.t - t0 > 0.3 * M.wP) M.pv.push({ V: 0.5 * (g.Xp() + M.Xlast), P: (g.imp[1] - M.impLast) / ((g.t - t0) * N) });
+  /* после остановки окна не короче 0,5: в окне 0,1 при 2V₁ всего около восьми ударов */
+  M.wP = Math.max(M.wP, 0.5); M.tWin = g.t + M.wP; M.impLast = g.imp[1]; M.Xlast = g.Xp(); M.nWin = OKON;
+}
+/* Продвинуть опыт на dt единиц модели, разрезая шаг на остановке поршня
+   и на границах окон давления. */
+function prodvinut(M, dt) {
+  var g = M.g, tEnd = g.t + dt, k = 0;
+  while (g.t < tEnd - 1e-12 && k++ < 1000) {
+    var tn = tEnd;
+    if (M.run && !M.done && M.tStop < tn) tn = M.tStop;
+    if (M.run && M.nWin < OKON + POSLE && M.tWin < tn) tn = M.tWin;
+    var tb = g.t;
+    g.advance(Math.max(0, tn - g.t));
+    if (M.warm && M.run && !M.done && g.t > M.tAvg) { var dd = g.t - Math.max(tb, M.tAvg); M.eSum += g.energy() * dd; M.tSum += dd; }
+    if (M.run && !M.done && g.t >= M.tStop - 1e-12) snyatOstanovku(M);
+    if (M.run && M.nWin < OKON + POSLE && g.t >= M.tWin - 1e-12) {
+      var X = g.Xp();
+      M.pv.push({ V: 0.5 * (X + M.Xlast), P: (g.imp[1] - M.impLast) / (M.wP * N) });   /* P/P₁: P₁ = N kT₁/V₁ = N */
+      M.impLast = g.imp[1]; M.Xlast = X; M.tWin += M.wP; M.nWin++;
+    }
+  }
+}
+
+function sostoyanie(M) {
+  var g = M.g, E = g.energy(), s = M.stop;
+  return {
+    imya: M.imya, u: M.u * VKV, uOverV: M.u, collisions: g.collisions, warmWalls: g.warm,
+    V1: 1, V2: 2, X: g.Xp(), T1: 1, T2: 2 * E / (3 * N), started: M.run, done: M.done,
+    ratio: s ? s.ratio : E / g.E0, Wpiston: s ? s.W : g.W / N, dE: s ? s.dE : (g.E0 - E) / N, Qwalls: s ? s.Q : g.Q / N,
+    tRun: s ? s.t : (M.run ? g.t - M.tStart : 0), t: g.t, nColl: g.nColl, drift: g.drift(), pvPoints: M.pv.length
+  };
+}
+
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+function uTxt(u) { return num(u, u < 0.1 ? 3 : u < 1 ? 2 : 1); }
+
+/* ══════════════════ сцена ══════════════════
+
+   Слева ящик сбоку (один большой или три маленьких рядом), поршень
+   справа; пунктиры отмечают V₁ и V₂ = 2V₁. Справа плоскость pV в долях
+   начальных давления и объёма: точки — давление на поршень по окнам,
+   кривые — изотерма и адиабата через начальную точку. Внизу показания. */
+
+var W = 1000, HGT = 460;
+var PVX0 = 560, PVX1 = 975, PVY0 = 40, PVY1 = 330;   /* плоскость pV */
+var VMIN = 0.9, VMAX = 2.1, PMAX = 1.15;
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function Porshen() {
+  var box = useRef(null);
+  if (!box.current) {
+    box.current = { p: { u: U_SLOW, udary: true, warm: false, ryadom: false }, nakop: 0, rate: 1 };
+    sobrat(box.current);
+  }
+  var S = box.current;
+  var pair = useState({ n: 0 });
+  var setUi = pair[1];
+  var ui = useRef({ last: 0 });
+
+  function sobrat(St, seed) {
+    var p = St.p, sd = seed != null ? seed : (Math.random() * 4294967296) >>> 0;
+    St.opyty = p.ryadom
+      ? OPYTY.map(function (q, i) { return opyt({ u: q.u, udary: true, warm: q.warm, cvet: q.cvet, imya: q.imya, seed: sd + i }); })
+      : [opyt({ u: p.u, udary: p.udary, warm: p.warm, seed: sd })];
+    /* ход поршня около 15 с экрана, в пределах 0,15–14 единиц модели в секунду */
+    var tRun = 1 / (Math.min.apply(null, St.opyty.map(function (M) { return M.u; })) * VKV);
+    St.rate = Math.max(0.15, Math.min(14, tRun / 15));
+    St.nakop = 0;
+  }
+
+  function snyat() {
+    var q = sostoyanie(S.opyty[0]);
+    for (var k in pokaz) delete pokaz[k];
+    Object.assign(pokaz, q, {
+      mode: S.p.ryadom ? 'ryadom' : 'odin', rate: S.rate,
+      ratioAdiabat: R_AD, ratioAdiabatCorr: R_ADC, Wad: W_AD, Wiso: W_ISO, eta1: ETA1, N: N,
+      ryadom: S.p.ryadom ? S.opyty.map(sostoyanie) : null
+    });
+  }
+  if (pokaz.N == null) snyat();
+  function obnovit() { snyat(); setUi(function (u) { return { n: u.n + 1 }; }); }
+
+  function step(dt) {
+    /* когда все поршни встали, время не медленнее 0,6 единицы в секунду */
+    var all = S.opyty.every(function (M) { return M.done; });
+    var d = Math.min(dt, 0.05) * (all ? Math.max(S.rate, 0.6) : S.rate);
+    S.opyty.forEach(function (M) { prodvinut(M, d); });
+    snyat();
+    ui.current.last += dt;
+    if (ui.current.last > 0.4) { ui.current.last = 0; setUi(function (u) { return { n: u.n + 1 }; }); }
+  }
+
+  /* ── рисунок ── */
+
+  function yashchik(ctx, M, x0, y0, B, ink, mut, podpis) {
+    var g = M.g, r = g.d / 2 * B, rr = Math.max(1.4, r), p = g.pos(M.buf), i, L;
+    var X = g.Xp(), xl = x0 - r, yt = y0 - r, hh = B + 2 * r;
+    /* цилиндр: дно, крышка и левая стенка; справа открыт до поршня */
+    ctx.strokeStyle = 'rgba(' + ink + ',.75)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x0 + 2 * B + r + 26, yt); ctx.lineTo(xl, yt); ctx.lineTo(xl, yt + hh); ctx.lineTo(x0 + 2 * B + r + 26, yt + hh); ctx.stroke();
+    if (M.warm) {
+      ctx.strokeStyle = 'rgba(224,110,80,.85)'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(x0 + X * B + r, yt); ctx.lineTo(xl, yt); ctx.lineTo(xl, yt + hh); ctx.lineTo(x0 + X * B + r, yt + hh); ctx.stroke();
+    }
+    ctx.save(); ctx.setLineDash([4, 5]); ctx.strokeStyle = 'rgba(' + mut + ',.6)'; ctx.lineWidth = 1.2;
+    [1, 2].forEach(function (v) { ctx.beginPath(); ctx.moveTo(x0 + v * B + r, yt - 6); ctx.lineTo(x0 + v * B + r, yt + hh + 6); ctx.stroke(); });
+    ctx.restore();
+    for (L = 0; L < 5; L++) {
+      ctx.fillStyle = 'rgba(' + M.cvet + ',' + (0.35 + 0.15 * L).toFixed(2) + ')';
+      ctx.beginPath();
+      for (i = 0; i < N; i++) {
+        if (Math.min(4, Math.floor(p[3 * i + 2] * 5)) !== L) continue;
+        var px = x0 + p[3 * i] * B, py = y0 + (1 - p[3 * i + 1]) * B;
+        ctx.moveTo(px + rr, py); ctx.arc(px, py, rr, 0, 2 * Math.PI);
+      }
+      ctx.fill();
+    }
+    /* поршень и шток */
+    var xp = x0 + X * B + r;
+    ctx.fillStyle = 'rgba(' + ink + ',.8)'; ctx.fillRect(xp, yt - 3, 8, hh + 6);
+    ctx.fillRect(xp + 8, y0 + B / 2 - 2, x0 + 2 * B + r + 40 - xp, 4);
+    if (podpis) {
+      C.label(ctx, x0 + B + r, yt + hh + 24, 'V₁', 17, 'rgba(' + mut + ',.95)');
+      C.label(ctx, x0 + 2 * B + r, yt + hh + 24, '2V₁', 17, 'rgba(' + mut + ',.95)');
+    }
+  }
+
+  function pv(ctx, ink, mut) {
+    var sx = (PVX1 - PVX0) / (VMAX - VMIN), sy = (PVY1 - PVY0) / PMAX, i;
+    function X(v) { return PVX0 + (v - VMIN) * sx; }
+    function Y(p) { return PVY1 - p * sy; }
+    C.label(ctx, PVX0, 26, 'давление на поршень', 17, 'rgba(' + mut + ',.95)', 'left');
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PVX0, PVY0); ctx.lineTo(PVX0, PVY1); ctx.lineTo(PVX1, PVY1); ctx.stroke();
+    [1, 2].forEach(function (v) { C.label(ctx, X(v), PVY1 + 22, v === 1 ? 'V₁' : '2V₁', 17, 'rgba(' + mut + ',.95)'); });
+    [0.5, 1].forEach(function (pp) { C.label(ctx, PVX0 - 8, Y(pp) + 6, pp === 1 ? 'p₁' : 'p₁/2', 17, 'rgba(' + mut + ',.95)', 'right'); });
+    C.label(ctx, PVX1, PVY1 + 22, 'V', 17, 'rgba(' + mut + ',.95)', 'right');
+    /* изотерма и адиабата через (V₁, p₁) */
+    [[1, 'изотерма', [6, 4]], [5 / 3, 'адиабата', []]].forEach(function (c) {
+      ctx.save(); ctx.setLineDash(c[2]); ctx.strokeStyle = 'rgba(' + ink + ',.85)'; ctx.lineWidth = 1.8; ctx.beginPath();
+      for (i = 0; i <= 120; i++) {
+        var v = 1 + i / 120, pp = Math.pow(v, -c[0]);
+        if (i) ctx.lineTo(X(v), Y(pp)); else ctx.moveTo(X(v), Y(pp));
+      }
+      ctx.stroke();
+      /* легенда в правом верхнем углу */
+      var ly = c[0] === 1 ? 50 : 26;
+      ctx.beginPath(); ctx.moveTo(PVX1 - 150, ly - 6); ctx.lineTo(PVX1 - 110, ly - 6); ctx.stroke(); ctx.restore();
+      C.label(ctx, PVX1, ly, c[1], 17, 'rgba(' + ink + ',.9)', 'right');
+    });
+    S.opyty.forEach(function (M) {
+      ctx.fillStyle = 'rgb(' + M.cvet + ')';
+      M.pv.forEach(function (q) {
+        ctx.beginPath(); ctx.arc(X(q.V), Y(Math.min(PMAX, q.P)), 3.6, 0, 2 * Math.PI); ctx.fill();
+      });
+    });
+    ctx.fillStyle = 'rgb(' + ink + ')';
+    ctx.beginPath(); ctx.arc(X(1), Y(1), 5, 0, 2 * Math.PI); ctx.fill();
+  }
+
+  function stroka(ctx, ink, mut) {
+    var Y0 = 384, m = 'rgba(' + mut + ',.95)';
+    if (S.p.ryadom) {
+      S.opyty.forEach(function (M, i) {
+        var q = sostoyanie(M), x = 200 + 200 * i;
+        C.readout(ctx, x, Y0, ['МЕДЛЕННЫЙ', 'БЫСТРЫЙ', 'ТЁПЛЫЕ СТЕНКИ'][i] + ' T₂/T₁', num(q.ratio, 3), 'rgb(' + M.cvet + ')');
+        C.label(ctx, x, Y0 + 66, M.warm ? 'A = ' + num(q.Wpiston, 3) + ', Q = ' + num(q.Qwalls, 3) : 'работа ' + num(q.Wpiston, 3), 17, m, 'right');
+      });
+      C.readout(ctx, 800, Y0, 'АДИАБАТА', num(R_AD, 3), 'rgb(' + ink + ')');
+      C.label(ctx, 800, Y0 + 66, 'работа ' + num(W_AD, 3), 17, m, 'right');
+      C.readout(ctx, 990, Y0, 'ИЗОТЕРМА', '1', 'rgb(' + ink + ')');
+      C.label(ctx, 990, Y0 + 66, 'работа ln 2 = ' + num(W_ISO, 3), 17, m, 'right');
+      return;
+    }
+    var q = pokaz;
+    C.readout(ctx, 190, Y0, 'T₂/T₁', num(q.ratio, 3), 'rgb(' + OPYTY[0].cvet + ')');
+    C.label(ctx, 190, Y0 + 66, 'адиабата ' + num(R_AD, 3), 17, m, 'right');
+    C.readout(ctx, 390, Y0, 'РАБОТА ПОРШНЮ', num(q.Wpiston, 3), 'rgb(' + ink + ')');
+    C.label(ctx, 390, Y0 + 66, 'по ударам, kT₁ на молекулу', 17, m, 'right');
+    C.readout(ctx, 590, Y0, 'УБЫЛЬ ЭНЕРГИИ', num(q.dE, 3), 'rgb(' + ink + ')');
+    C.label(ctx, 590, Y0 + 66, 'E₁ − E₂ на молекулу', 17, m, 'right');
+    C.readout(ctx, 790, Y0, 'ТЕПЛО ОТ СТЕНОК', num(q.Qwalls, 3), 'rgb(' + ink + ')');
+    C.label(ctx, 790, Y0 + 66, q.warmWalls ? 'стенки тёплые' : 'стенки не греют', 17, m, 'right');
+    C.readout(ctx, 990, Y0, 'u / √⟨v²⟩', uTxt(q.uOverV), 'rgb(' + ink + ')');
+    C.label(ctx, 990, Y0 + 66, 'скорость поршня', 17, m, 'right');
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted;
+    if (S.p.ryadom) {
+      S.opyty.forEach(function (M, i) {
+        var y0 = 46 + 112 * i;
+        yashchik(ctx, M, 40, y0, 84, ink, mut, false);
+        C.label(ctx, 260, y0 + 36, M.imya, 17, 'rgb(' + M.cvet + ')', 'left');
+        C.label(ctx, 260, y0 + 62, 'u = ' + uTxt(M.u) + ' √⟨v²⟩', 17, 'rgba(' + mut + ',.95)', 'left');
+      });
+    } else {
+      yashchik(ctx, S.opyty[0], 40, 96, 200, ink, mut, true);
+      C.label(ctx, 240, 40, N + ' молекул, вид сбоку', 17, 'rgba(' + mut + ',.95)');
+    }
+    pv(ctx, ink, mut);
+    stroka(ctx, ink, mut);
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+
+  function zanovo(o, seed) { Object.assign(S.p, o || {}); sobrat(S, seed); obnovit(); }
+  function start() { S.opyty.forEach(pustit); obnovit(); }
+  function dvigatU(v) {
+    var u = Math.max(U_MIN, Math.min(U_MAX, v));
+    u = u < 0.1 ? Math.round(u * 1000) / 1000 : u < 1 ? Math.round(u * 100) / 100 : Math.round(u * 10) / 10;
+    if (u === S.p.u) return;
+    zanovo({ u: u, ryadom: false });
+  }
+
+  /* Для автопроверки: __demoSet({ u, udary, warm, ryadom, seed, run }) —
+     u в долях v_кв; без run газ ждёт кнопки. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    var p = {};
+    ['u', 'udary', 'warm', 'ryadom'].forEach(function (k) { if (o[k] != null) p[k] = o[k]; });
+    zanovo(p, o.seed);
+    if (o.run) start();
+    return pokaz;
+  };
+  window.__demoModel = { G: G, get opyty() { return S.opyty; }, opyt: opyt, pustit: pustit, prodvinut: prodvinut,
+                         sostoyanie: sostoyanie, R_AD: R_AD, R_ADC: R_ADC, W_AD: W_AD, W_ISO: W_ISO };
+
+  /* ── строка под сценой ── */
+
+  function slova() {
+    var q = pokaz, A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var g = S.opyty[0].g, d = g.d, nC = N / 1;
+    var tau = 1 / (Math.SQRT2 * Math.PI * d * d * nC * Math.sqrt(8 / Math.PI) * G.chi(ETA1));
+    if (S.p.ryadom) {
+      var r = q.ryadom;
+      if (!r[0].started) return 'Три одинаковых газа: поршень уйдёт медленно (0,01 √⟨v²⟩), быстро (3 √⟨v²⟩) и медленно, но со стенками, которые держат начальную температуру. Нажмите «Пустить поршень».';
+      if (!r[0].done) return 'Поршни идут. Быстрый уже встал, и его газ заполняет освободившийся объём сам; медленные ещё в пути, их точки давления ложатся на две разные кривые.';
+      return 'Медленный поршень охладил газ до ' + A(num(r[0].ratio, 3)) + ' начальной температуры: это адиабата, ' + num(R_AD, 3) +
+        '. Быстрый поршень ушёл раньше, чем молекулы его догнали, работы не получил, и газ остался при ' + A(num(r[1].ratio, 3)) +
+        ': он просто расширился в пустоту. Медленный поршень с тёплыми стенками получил работу ' + A(num(r[2].Wpiston, 3)) +
+        ' kT₁ на молекулу, почти как изотерма (ln 2 = 0,693), и почти столько же тепла газ взял у стенок, ' + A(num(r[2].Qwalls, 3)) + '; его температура ' + num(r[2].ratio, 2) + ' взята средней за последнюю пятую часть хода. Конец у быстрого и у тёплого один, объём 2V₁ при прежней температуре, а работа и теплота разные.';
+    }
+    if (!q.started)
+      return N + ' молекул в ящике, удары упругие. Поршень справа уйдёт со скоростью ' + uTxt(q.uOverV) +
+        ' √⟨v²⟩, пока объём не удвоится; работа над ним набирается по ударам молекул. Нажмите «Пустить поршень». Ползунок задаёт скорость от 0,003 до 3 √⟨v²⟩.';
+    var txt;
+    if (q.uOverV >= 0.6) {
+      txt = 'Поршень уходит быстрее большинства молекул: догнать его успевают немногие, и он получил всего ' + A(num(q.Wpiston, 3)) +
+        ' kT₁ на молекулу. Газ остался при ' + A(num(q.ratio, 3)) + ' начальной температуры и заполняет освободившийся объём сам: это расширение в пустоту, опыт Джоуля. ' +
+        'Точки давления на поршень во время хода лежат у нуля: у газа, который не успевает выровняться, одного давления нет, и линии на диаграмме у такого процесса нет. ' +
+        'Когда поршень встал, газ выровнялся и пришёл на изотерму, а не на адиабату.';
+    } else if (q.warmWalls) {
+      txt = 'Стенки держат начальную температуру. Поршень получил работу ' + A(num(q.Wpiston, 3)) + ' kT₁ на молекулу (изотерма даёт ln 2 = 0,693), ' +
+        'а газ взял у стенок тепло ' + A(num(q.Qwalls, 3)) + ', почти столько же, и остался при ' + A(num(q.ratio, 3)) + ' начальной температуры' +
+        (q.done ? ', в среднем за последнюю пятую часть хода' : '') + '. При 400 молекулах температура газа у тёплых стенок дрожит на несколько процентов.';
+    } else if (!q.collisions) {
+      txt = 'Удары друг о друга выключены. Поршень отнимает энергию только у движения вдоль x, поперёк молекулы её не делят, и газ остыл до ' + A(num(q.ratio, 3)) +
+        ' начальной энергии, а не до ' + num(R_AD, 3) + ', как газ, который успевает прийти в равновесие: это одномерная адиабата, 3/4 при удвоении. Без столкновений у газа нет одной температуры.';
+    } else {
+      txt = 'Поршень уходит со скоростью ' + uTxt(q.uOverV) + ' √⟨v²⟩. Каждый удар о уходящий поршень отнимает у молекулы энергию, и газ остыл до ' + A(num(q.ratio, 3)) +
+        ' начальной температуры' + (q.done ? '' : ' (поршень ещё идёт)') + '; адиабата одноатомного газа даёт ' + num(R_AD, 3) + ', с поправкой на размер шаров ' + num(R_ADC, 3) + '. ' +
+        'Работа над поршнем ' + A(num(q.Wpiston, 3)) + ' kT₁ на молекулу, убыль энергии газа ' + num(q.dE, 3) + ': теплоты нет, и первое начало сходится по ударам. ' +
+        'Ход поршня занял ' + num(q.tRun / (1 / VKV), 0) + ' времён пролёта ящика, около ' + num(q.tRun / tau, 0) + ' времён свободного пробега: газ успевает выровняться, и точки давления идут по адиабате.';
+    }
+    return txt;
+  }
+
+  var q0 = pokaz;
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Поршень:">
+          <${C.Btn} active=${!S.p.ryadom && S.p.u === U_SLOW} onClick=${function () { zanovo({ u: U_SLOW, ryadom: false }); }}>медленный<//>
+          <${C.Btn} active=${!S.p.ryadom && S.p.u === U_FAST} onClick=${function () { zanovo({ u: U_FAST, ryadom: false }); }}>быстрый<//>
+        <//>
+        <${C.Slider} label="u / √⟨v²⟩:" log=${true} min=${U_MIN} max=${U_MAX} value=${S.p.u}
+                     onChange=${dvigatU} display=${uTxt(S.p.u)} />
+        <${C.Group}>
+          <${C.Btn} active=${S.p.udary} onClick=${function () { zanovo({ udary: !S.p.udary, ryadom: false }); }}>удары друг о друга<//>
+          <${C.Btn} active=${S.p.warm} onClick=${function () { zanovo({ warm: !S.p.warm, ryadom: false }); }}>стенки тёплые<//>
+          <${C.Btn} active=${S.p.ryadom} onClick=${function () { zanovo({ ryadom: !S.p.ryadom }); }}>рядом три<//>
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} disabled=${q0.started} onClick=${start}>Пустить поршень<//>
+          <${C.Btn} onClick=${function () { zanovo(); }}>Заново<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Porshen);
+</script>
+</body>
+</html>

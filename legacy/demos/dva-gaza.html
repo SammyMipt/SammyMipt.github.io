@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Два газа через стенку</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-09/">&larr; Неделя 09</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/demo-gaz.js"></script>
+<script src="../shared/analytics.js?demo=dva-gaza"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html, G = window.DemoGaz;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Шаг «Тепловой контакт» первого акта девятой недели, только в главе
+   (бриф briefs/proizvodstvo09.md, раздел «Демки», исполнитель 1, «если
+   останется время»; решения автора briefs/lekciya09_resheniya_ramki.md,
+   §3 и §6: демка двух газов в главе у нулевого начала; карточка 6 описи
+   briefs/lekciya09_demki_minuty.md §1.4). Счёт в shared/demo-gaz.js,
+   твёрдые шары событийным счётом, с пластиной на пружине.
+
+   МОДЕЛЬ. Ящик центров 2×1×1, посередине пластина на пружине: масса M,
+   жёсткость K = 2000, равновесие при x = 1; пластина молекул не
+   пропускает. Слева 300 лёгких молекул массы 1 при kT = 2, справа 300
+   тяжёлых массы 10 при kT = 0,5 (как гелий и аргон по отношению масс).
+   Доля объёма шаров в своей половине 0,01; шары сталкиваются только со
+   своими. Удар шара о пластину есть упругий удар двух тел вдоль x, между
+   ударами пластина точно поворачивается по фазе осциллятора; момент удара
+   ищется шагами, которые не перескакивают корень (шапка demo-gaz.js).
+   Энергия идёт с одной стороны на другую только через качания пластины;
+   температура в счёт не входит, показания снимаются с энергий: ⅔⟨ε_пост⟩
+   каждой стороны и √⟨v²⟩. «Стенка неподвижна»: пластина стоит, молекулы
+   отражаются от неё зеркально. Пластина на пружине есть механическая
+   модель теплопроводящей стенки, а не атомы стенки.
+
+   ЧЕГО ЖДАТЬ, для сравнения, в счёт не входит. Пластина на пружине
+   несёт две квадратичные степени свободы, поэтому общая конечная
+   ⅔⟨ε_пост⟩ = E/(1,5(N₁ + N₂) + 1) = 1,2486; при равных средних энергиях
+   √⟨v²⟩ лёгких больше в √10 = 3,162 раза.
+
+   ПРОВЕРКА (23.10, прогон этого счёта в node, scratchpad demki1/t8–t9.js,
+   и hcheck на порту 49942; отчёт briefs/proizvodstvo09_demki-1_REPORT.md).
+   Энергия молекул и пластины сохраняется до 2·10⁻¹⁵ за 4·10⁵ событий.
+   300 + 300, M = 20: средние ⅔⟨ε_пост⟩ с t = 50 до 300 слева 1,246,
+   справа 1,252 против 1,2486, пластина M⟨U²⟩ = 1,264; блоки по 50
+   единиц качаются на ±2 % в обе стороны; отношение √⟨v²⟩ 3,156 против
+   3,162 (опись по шагу 0,0005: 1,245 и 1,253, 3,154). Разность средних
+   энергий падает в e раз к t ≈ 14 (опись: около 11). Пластина вдесятеро
+   тяжелее, 150 + 150: к t = 30 1,76 и 0,71, 1,79 и 0,70 (опись: 1,75 и
+   0,72): время выравнивания задаёт стенка. Неподвижная пластина: к t = 20
+   2,000 и 0,500, обмена нет (отрицательный контроль). Ловушки шага по
+   времени, которую опись нашла у счёта с шагом (при шаге 0,002 газы
+   застывали на 1,186 и 1,309), у событийного счёта нет: шага нет, и
+   средние за 250 единиц сходятся с 1,2486 до 0,3 %.
+   Гейт главы девятой недели, круг 2 (К2-М-К2-Ф-М6): показания слева и
+   справа подписаны ⅔⟨ε_пост⟩ с нижним индексом, как подпись графика
+   (функция podpisSub, шрифт и цвет C.readout); счёт не тронут. */
+
+var N1 = 300, M1 = 1, M2 = 10, KT1 = 2, KT2 = 0.5, K = 2000, ETA = 0.01;
+var M_MIN = 5, M_MAX = 200, M_DEF = 20;
+var SKOROST = 2.5;        /* единиц модели в секунду экрана */
+var DT_S = 0.05;          /* шаг выборки */
+var OKNO = 60;            /* окно графика, единиц */
+var TAU_E = 1;            /* сглаживание показаний */
+var CL = '77,182,198', CT = '224,138,82';
+
+function ema(o, k, x, a) {
+  o[k] = (o[k] || 0) * (1 - a) + a * x;
+  o[k + 'W'] = (o[k + 'W'] || 0) * (1 - a) + a;
+  return o[k] / o[k + 'W'];
+}
+
+function novyj(p) {
+  var N = 2 * N1;
+  var M = { p: p, buf: new Float64Array(3 * N), sled: [], em: {}, tE: null, nakop: 0 };
+  M.g = G.create({ N: N, N1: N1, X: 2, eta: ETA, seed: p.seed,
+                   m: function (i) { return i < N1 ? M1 : M2; }, kT: function (i) { return i < N1 ? KT1 : KT2; },
+                   plate: { X0: 1, M: p.plateMass, K: K, fixed: p.fixed } });
+  M.kTfin = M.g.energy() / (1.5 * N + (p.fixed ? 0 : 1));
+  vyborka(M, true);
+  return M;
+}
+function storony(g) {
+  var e = [0, 0], v = [0, 0], i;
+  for (i = 0; i < g.N; i++) {
+    var v2 = g.vx[i] * g.vx[i] + g.vy[i] * g.vy[i] + g.vz[i] * g.vz[i], s = i < N1 ? 0 : 1;
+    e[s] += 0.5 * g.m[i] * v2; v[s] += v2;
+  }
+  return { kT: [2 * e[0] / (3 * N1), 2 * e[1] / (3 * N1)], vr: [Math.sqrt(v[0] / N1), Math.sqrt(v[1] / N1)] };
+}
+function vyborka(M, nul) {
+  if (!nul) M.g.advance(DT_S);
+  var q = storony(M.g), a = DT_S / TAU_E;
+  M.now = q;
+  M.kT = [ema(M.em, 'k0', q.kT[0], a), ema(M.em, 'k1', q.kT[1], a)];
+  M.vr = [ema(M.em, 'v0', q.vr[0], a), ema(M.em, 'v1', q.vr[1], a)];
+  M.sled.push([M.g.t, q.kT[0], q.kT[1], q.vr[0], q.vr[1]]);
+  while (M.sled.length && M.sled[0][0] < M.g.t - OKNO) M.sled.shift();
+  /* время, когда сглаженная разность упала в e раз от начальной 1,5 */
+  if (M.tE == null && !M.p.fixed && M.kT[0] - M.kT[1] < (KT1 - KT2) / Math.E) M.tE = M.g.t;
+}
+
+function sostoyanie(M) {
+  var g = M.g, P = g.plate();
+  return {
+    mode: M.p.fixed ? 'fixed' : 'spring', m1: M1, m2: M2, N1: N1, N2: N1, kT1: M.kT[0], kT2: M.kT[1],
+    kT1now: M.now.kT[0], kT2now: M.now.kT[1], vrms1: M.vr[0], vrms2: M.vr[1], ratio: M.vr[0] / M.vr[1],
+    ratioTheory: Math.sqrt(M2 / M1), plateMass: M.p.plateMass, fixed: M.p.fixed, kTfinal: M.kTfin,
+    tau: M.tE, t: g.t, plateX: P.X, plateE: P.E, plateHits: g.plateHits, drift: g.drift(), nEv: g.nEv
+  };
+}
+
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+
+/* ══════════════════ сцена ══════════════════
+
+   Слева ящик сбоку: лёгкие молекулы бирюзой, тяжёлые охрой, посередине
+   пластина и над ней пружина. Справа два графика по времени: ⅔⟨ε_пост⟩
+   каждой стороны с пунктиром ожидаемого общего значения и √⟨v²⟩.
+   Внизу показания, сглаженные по одной единице времени. */
+
+var W = 1000, HGT = 460;
+var BX = 30, BY = 96, B = 200;                      /* ящик центров 2B × B */
+var GX0 = 580, GX1 = 980, G1Y0 = 40, G1Y1 = 170, G2Y0 = 214, G2Y1 = 330;
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function DvaGaza() {
+  var box = useRef(null);
+  if (!box.current) {
+    var p0 = { plateMass: M_DEF, fixed: false, seed: (Math.random() * 4294967296) >>> 0 };
+    box.current = { p: p0, M: novyj(p0), nakop: 0 };
+  }
+  var S = box.current;
+  var pair = useState({ n: 0 });
+  var setUi = pair[1];
+  var ui = useRef({ last: 0 });
+
+  function snyat() {
+    var q = sostoyanie(S.M);
+    for (var k in pokaz) delete pokaz[k];
+    Object.assign(pokaz, q);
+  }
+  if (pokaz.N1 == null) snyat();
+
+  function zanovo(o) {
+    Object.assign(S.p, o || {});
+    if (!o || o.seed == null) S.p.seed = (Math.random() * 4294967296) >>> 0;
+    S.M = novyj(S.p); S.nakop = 0;
+    snyat(); setUi(function (u) { return { n: u.n + 1 }; });
+  }
+
+  function step(dt) {
+    S.nakop += Math.min(dt, 0.05) * SKOROST;
+    while (S.nakop >= DT_S) { vyborka(S.M); S.nakop -= DT_S; }
+    snyat();
+    ui.current.last += dt;
+    if (ui.current.last > 0.5) { ui.current.last = 0; setUi(function (u) { return { n: u.n + 1 }; }); }
+  }
+
+  /* ── рисунок ── */
+
+  function sub(ctx, x, y, a, s, b, size, color, align) {
+    ctx.font = size + 'px "Golos Text", system-ui, sans-serif';
+    var wa = ctx.measureText(a).width, wb = ctx.measureText(b).width;
+    ctx.font = Math.round(size * 0.7) + 'px "Golos Text", system-ui, sans-serif';
+    var ws = ctx.measureText(s).width, wt = wa + ws + wb;
+    var x0 = align === 'left' ? x : align === 'right' ? x - wt : x - wt / 2;
+    C.label(ctx, x0, y, a, size, color, 'left');
+    C.label(ctx, x0 + wa, y + size * 0.25, s, Math.round(size * 0.7), color, 'left');
+    C.label(ctx, x0 + wa + ws, y, b, size, color, 'left');
+  }
+
+  /* Подпись показания тем же шрифтом и цветом, что у C.readout, но с
+     нижним индексом, как у подписи графика: ⅔⟨ε_пост⟩. Выравнивание
+     по правому краю, как у readout. */
+  function podpisSub(ctx, x, y, a, s, b) {
+    var F = '600 15px "JetBrains Mono", ui-monospace, monospace';
+    var Fs = '600 11px "JetBrains Mono", ui-monospace, monospace';
+    ctx.font = F;
+    var wa = ctx.measureText(a).width, wb = ctx.measureText(b).width;
+    ctx.font = Fs;
+    var ws = ctx.measureText(s).width, x0 = x - wa - ws - wb;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#8c93ac';
+    ctx.font = F; ctx.fillText(a, x0, y);
+    ctx.font = Fs; ctx.fillText(s, x0 + wa, y + 4);
+    ctx.font = F; ctx.fillText(b, x0 + wa + ws, y);
+    ctx.textAlign = 'center';
+  }
+
+  function yashchik(ctx, M, ink, mut) {
+    var g = M.g, r = g.d / 2 * B, rr = Math.max(1.6, r), p = g.pos(M.buf), P = g.plate(), i, L;
+    var xl = BX - r, yt = BY - r, w = 2 * B + 2 * r, hh = B + 2 * r;
+    ctx.strokeStyle = 'rgba(' + ink + ',.75)'; ctx.lineWidth = 2; ctx.strokeRect(xl, yt, w, hh);
+    for (L = 0; L < 5; L++) {
+      [[0, CL], [1, CT]].forEach(function (sc) {
+        ctx.fillStyle = 'rgba(' + sc[1] + ',' + (0.35 + 0.15 * L).toFixed(2) + ')';
+        ctx.beginPath();
+        for (i = sc[0] * N1; i < (sc[0] + 1) * N1; i++) {
+          if (Math.min(4, Math.floor(p[3 * i + 2] * 5)) !== L) continue;
+          var px = BX + p[3 * i] * B, py = BY + (1 - p[3 * i + 1]) * B;
+          ctx.moveTo(px + rr, py); ctx.arc(px, py, rr, 0, 2 * Math.PI);
+        }
+        ctx.fill();
+      });
+    }
+    /* пластина и пружина над ней: от неподвижной опоры к верху пластины */
+    var xp = BX + P.X * B;
+    ctx.fillStyle = 'rgba(' + ink + ',.85)'; ctx.fillRect(xp - 3, yt - 18, 6, hh + 18);
+    var y0 = yt - 30, xa = BX + B - 70;
+    ctx.strokeStyle = 'rgba(' + ink + ',.85)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(xa, y0 - 14); ctx.lineTo(xa, y0 + 14); ctx.stroke();
+    if (!M.p.fixed) {
+      ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(xa, y0);
+      var n = 10, x1 = xp - 10, dx = (x1 - xa - 10) / n;
+      ctx.lineTo(xa + 10, y0);
+      for (i = 0; i < n; i++) ctx.lineTo(xa + 10 + (i + 0.5) * dx, y0 + (i % 2 ? 7 : -7));
+      ctx.lineTo(x1, y0); ctx.lineTo(xp, y0); ctx.lineTo(xp, yt - 18); ctx.stroke();
+    } else {
+      ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(xa, y0); ctx.lineTo(xp, y0); ctx.lineTo(xp, yt - 18); ctx.stroke();
+    }
+    C.label(ctx, BX + B / 2, BY + B + 34, 'лёгкие, масса 1', 17, 'rgb(' + CL + ')');
+    C.label(ctx, BX + 1.5 * B, BY + B + 34, 'тяжёлые, масса 10', 17, 'rgb(' + CT + ')');
+    C.label(ctx, BX + B, 28, M.p.fixed ? 'пластина закреплена' : 'пластина на пружине, масса ' + num(M.p.plateMass, 0), 17, 'rgba(' + mut + ',.95)');
+  }
+
+  function grafik(ctx, M, k0, k1, y0, y1, ymax, zag, linia, ink, mut) {
+    var t1 = Math.max(OKNO, M.g.t), t0 = t1 - OKNO, sx = (GX1 - GX0) / OKNO, sy = (y1 - y0) / ymax;
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(GX0, y0); ctx.lineTo(GX0, y1); ctx.lineTo(GX1, y1); ctx.stroke();
+    zag(y0 - 14);
+    for (var v = 1; v <= ymax; v++) C.label(ctx, GX0 - 7, y1 - v * sy + 6, String(v), 17, 'rgba(' + mut + ',.95)', 'right');
+    if (linia != null) {
+      ctx.save(); ctx.setLineDash([6, 4]); ctx.strokeStyle = 'rgba(' + ink + ',.8)'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(GX0, y1 - linia * sy); ctx.lineTo(GX1, y1 - linia * sy); ctx.stroke(); ctx.restore();
+    }
+    [[k0, CL], [k1, CT]].forEach(function (kc) {
+      ctx.strokeStyle = 'rgb(' + kc[1] + ')'; ctx.lineWidth = 1.8; ctx.beginPath();
+      M.sled.forEach(function (s, i) {
+        var X = GX0 + (s[0] - t0) * sx, Y = y1 - Math.min(ymax, s[kc[0]]) * sy;
+        if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+      });
+      ctx.stroke();
+    });
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted, M = S.M, q = pokaz, m = 'rgba(' + mut + ',.95)';
+    if (q.N1 == null) return;
+    yashchik(ctx, M, ink, mut);
+    grafik(ctx, M, 1, 2, G1Y0, G1Y1, 2.2, function (y) { sub(ctx, GX0, y, '⅔⟨ε', 'пост', '⟩ каждой стороны и общее пунктиром', 17, m, 'left'); },
+           q.fixed ? null : q.kTfinal, ink, mut);
+    grafik(ctx, M, 3, 4, G2Y0, G2Y1, 2.6, function (y) { C.label(ctx, GX0, y, '√⟨v²⟩ каждой стороны', 17, m, 'left'); }, null, ink, mut);
+    C.label(ctx, GX1, G2Y1 + 22, 'время, последние ' + OKNO + ' единиц', 17, m, 'right');
+    var Y = 384;
+    C.readout(ctx, 190, Y, '', num(q.kT1, 2), 'rgb(' + CL + ')');
+    podpisSub(ctx, 190, Y, '⅔⟨ε', 'пост', '⟩ СЛЕВА');
+    C.label(ctx, 190, Y + 66, 'было 2', 17, m, 'right');
+    C.readout(ctx, 390, Y, '', num(q.kT2, 2), 'rgb(' + CT + ')');
+    podpisSub(ctx, 390, Y, '⅔⟨ε', 'пост', '⟩ СПРАВА');
+    C.label(ctx, 390, Y + 66, 'было 0,5', 17, m, 'right');
+    C.readout(ctx, 590, Y, 'ОБЩЕЕ', q.fixed ? '—' : num(q.kTfinal, 3), 'rgb(' + ink + ')');
+    C.label(ctx, 590, Y + 66, q.fixed ? 'обмена нет' : 'E/(1,5N + 1)', 17, m, 'right');
+    C.readout(ctx, 790, Y, 'ОТНОШЕНИЕ √⟨v²⟩', num(q.ratio, 2), 'rgb(' + ink + ')');
+    C.label(ctx, 790, Y + 66, '√10 = 3,16', 17, m, 'right');
+    C.readout(ctx, 990, Y, 'ВРЕМЯ', num(q.t, 0), 'rgb(' + ink + ')');
+    C.label(ctx, 990, Y + 66, q.tau != null ? 'разность в e раз: ' + num(q.tau, 0) : 'единиц модели', 17, m, 'right');
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* Для автопроверки: __demoSet({ plateMass, fixed, seed }) пересоздаёт
+     опыт; __demoModel — модель и счёт показаний. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    var p = {};
+    if (o.plateMass != null) p.plateMass = o.plateMass;
+    if (o.fixed != null) p.fixed = !!o.fixed;
+    if (o.seed != null) p.seed = o.seed;
+    zanovo(p);
+    return pokaz;
+  };
+  window.__demoModel = { G: G, get M() { return S.M; }, novyj: novyj, vyborka: vyborka, sostoyanie: sostoyanie };
+
+  function dvigatM(v) {
+    var mm = Math.round(Math.max(M_MIN, Math.min(M_MAX, v)));
+    if (mm === S.p.plateMass) return;
+    zanovo({ plateMass: mm });
+  }
+
+  function slova() {
+    var q = pokaz, A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var eps = '⅔⟨ε<sub>пост</sub>⟩';
+    if (q.fixed)
+      return 'Пластина закреплена: молекулы отскакивают от неё, как от стенки, и энергия с одной стороны на другую не переходит. ' +
+        eps + ' слева ' + A(num(q.kT1, 2)) + ', справа ' + A(num(q.kT2, 2)) + ', как на старте. Такая стенка не даёт теплового контакта.';
+    var txt = 'Слева 300 лёгких молекул, горячих, справа 300 вдесятеро тяжелее, холодных, как гелий и аргон. Пластина молекул не пропускает, а энергию передаёт: молекулы бьют в неё с двух сторон, и она качается на пружине. ';
+    var blizko = Math.abs(q.kT1 - q.kT2) < 0.12;
+    if (!blizko)
+      txt += 'Сейчас ' + eps + ' слева ' + A(num(q.kT1, 2)) + ', справа ' + A(num(q.kT2, 2)) + ' (было 2 и 0,5); обе идут к ' + num(q.kTfinal, 2) +
+        ', это значение даёт сохранение энергии, если на пластину тоже приходится своя доля. Скорости при этом не выравниваются: √⟨v²⟩ лёгких сейчас больше в ' + A(num(q.ratio, 2)) + ' раза.';
+    else
+      txt += 'Средние энергии сравнялись: ' + eps + ' слева ' + A(num(q.kT1, 2)) + ', справа ' + A(num(q.kT2, 2)) + ', и дальше только дрожат около ' + num(q.kTfinal, 2) +
+        ' на несколько процентов, как и положено трёмстам молекулам. А скорости разные: √⟨v²⟩ лёгких больше в ' + A(num(q.ratio, 2)) +
+        ' раза, при равных средних энергиях это √10 = 3,16. При тепловом контакте выравнивается средняя энергия поступательного движения молекулы, а скорость нет; у шаров демки другой энергии и нет.';
+    if (q.plateMass >= 100) txt += ' Пластина тяжёлая и качается медленно, поэтому энергия переходит дольше: время выравнивания задаёт стенка.';
+    return txt;
+  }
+
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Стенка:">
+          <${C.Btn} active=${!S.p.fixed} onClick=${function () { zanovo({ fixed: false }); }}>на пружине<//>
+          <${C.Btn} active=${S.p.fixed} onClick=${function () { zanovo({ fixed: true }); }}>неподвижна<//>
+        <//>
+        <${C.Slider} label="Масса пластины:" log=${true} min=${M_MIN} max=${M_MAX} value=${S.p.plateMass}
+                     onChange=${dvigatM} display=${String(S.p.plateMass)} />
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${function () { zanovo(); }}>Заново<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(DvaGaza);
+</script>
+</body>
+</html>
