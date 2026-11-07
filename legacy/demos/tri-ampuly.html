@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Три ампулы с углекислым газом</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-11/">&larr; Неделя 11</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=tri-ampuly"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Производство драфта недели 11 (бриф briefs/proizvodstvo11.md, раздел
+   «Демка: один исполнитель»; решения автора
+   briefs/lekciya11_resheniya_ramki.md, п. 12: явная демка трёх состояний
+   мениска у критической точки). Блок главы sverhkriticheskij-flyuid,
+   обёртка fazovye-perehody/demka-tri-ampuly.
+
+   ОПЫТ. Три запаянные ампулы одного объёма с углекислым газом. Средняя
+   плотность ρ̄ = m/V в каждой своя и при нагреве не меняется (стекло не
+   расширяется, ампула запаяна): 0,7, 1,0 и 1,3 от критической. Пока
+   температура ниже критической и ρ̄ лежит между плотностями пара ρп(T) и
+   жидкости ρж(T), в ампуле две фазы, и доля объёма под жидкостью
+   следует из баланса массы:
+       ρ̄ V = ρж Vж + ρп (V − Vж),   x = Vж/V = (ρ̄ − ρп)/(ρж − ρп).
+   Плотности фаз от заполнения не зависят: они заданы температурой. Если
+   ρп(T) дорос до ρ̄, жидкость выкипела (x = 0); если ρж(T) упал до ρ̄,
+   жидкость заполнила ампулу (x = 1); выше критической температуры
+   фаза одна. Ампула нарисована цилиндром, высота жидкости равна x;
+   объёмом запаянного кончика пренебрегаем. Расслоение плотности по
+   высоте от тяжести (у критической точки оно заметно в ампуле высотой
+   в сантиметры) не считается. Каждое показание равновесное при своей
+   температуре; темп нагрева на экране условный и у критической точки
+   замедлен, чтобы глаз успел.
+
+   ПЛОТНОСТИ СОСУЩЕСТВОВАНИЯ И ДАВЛЕНИЕ ПАРА CO₂. Вспомогательные
+   уравнения R. Span, W. Wagner, J. Phys. Chem. Ref. Data 25, 1509 (1996),
+   с. 1524–1525, ур. (3.13)–(3.15); коэффициенты сверены по скану статьи
+   (srd.nist.gov/JPCRD/jpcrd516.pdf) 06.11.2026. θ = 1 − T/Tкр,
+       ln(pн/pкр) = (Tкр/T) Σ aᵢ θ^tᵢ,   ln(ρж/ρкр) = Σ aᵢ θ^tᵢ,
+       ln(ρп/ρкр) = Σ aᵢ θ^tᵢ;
+   Tкр = 304,1282 К, pкр = 7,3773 МПа, ρкр = 467,6 кг/м³ (ур. 3.5–3.7).
+   Погрешность по статье: pн до 0,012 %; ρж до 0,015 % до 295 К, 0,04 %
+   до 303 К и 1 % от 303 К до Tкр; ρп до 0,025 %, выше 295 К до 0,25 %.
+
+   СВЕРКА С ТАБЛИЦЕЙ НАСЫЩЕНИЯ NIST Webbook (запрос SatP 06.11.2026,
+   уравнение состояния Span–Wagner), python, briefs/lekciya11_skripty/proizvodstvo/ampuly.py:
+       T, К    pн, МПа          ρж, кг/м³        ρп, кг/м³
+       250     1,7850 / 1,7850  1045,99/1045,97  46,65/46,64
+       280     4,1607 / 4,1607   883,56/883,58  121,74/121,74
+       300     6,7131 / 6,7131   679,21/679,24  268,56/268,58
+       303     7,1889 / 7,1890   599,81/599,86  338,92/339,00
+       304     7,3555 / 7,3555   529,44/530,30  406,35/406,42
+   (демка / NIST). Расхождение до 0,01 % везде, кроме ρж при 304 К
+   (−0,16 %, в пределах 1 % статьи у самой критической точки).
+
+   ЧИСЛА ДЕМКИ (python и этот код, совпали во всех печатных знаках):
+   tкр = 30,98 °C, pкр = 72,81 атм: это 31 °C и 73 атм главы.
+   pн при 25 °C 63,50 атм, при 30 °C 71,19 атм.
+   При 20 °C: ρп = 194,2, ρж = 773,4 кг/м³; доли жидкости 0,230, 0,472,
+   0,714. Левая ампула (0,7) становится однофазной при 29,52 °C: мениск
+   опускается от 0,23 и уходит в дно. Правая (1,3) при 29,65 °C: мениск
+   поднимается от 0,71 и упирается в кончик. Средняя (1,0) держит мениск
+   между 0,46 при 10 °C и 0,49 у самой критической точки: середина
+   ρж и ρп чуть выше ρкр (закон прямолинейного диаметра), поэтому мениск
+   стоит немного ниже середины, и пропадает он при tкр.
+
+   ОПАЛЕСЦЕНЦИЯ не рисуется: её яркость здесь не по чему считать. Строка
+   показаний говорит о ней словами в последние 0,3 К перед tкр.
+   Яркость вещества в ампуле пропорциональна плотности (показатель
+   преломления газа растёт с плотностью линейно, n − 1 ∝ ρ), поэтому у
+   критической точки жидкость и пар сходятся и по виду: контраст
+   мениска взят пропорциональным ρж − ρп. */
+
+var T_KR = 304.1282, P_KR = 7.3773, RHO_KR = 467.6;      /* К, МПа, кг/м³ */
+var ATM = 0.101325;                                      /* МПа */
+var A_P = [-7.0602087, 1.9391218, -1.6463597, -3.2995634], T_P = [1, 1.5, 2, 4];
+var A_ZH = [1.9245108, -0.62385555, -0.32731127, 0.39245142], T_ZH = [0.34, 0.5, 10 / 6, 11 / 6];
+var A_PAR = [-1.7074879, -0.82274670, -4.6008549, -10.111178, -29.742252], T_PAR = [0.34, 0.5, 1, 7 / 3, 14 / 3];
+
+function ryad(a, t, th) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i] * Math.pow(th, t[i]); return s; }
+/* Давление насыщенного пара, МПа; ниже T_KR. */
+function pNas(T) { var th = 1 - T / T_KR; return P_KR * Math.exp(T_KR / T * ryad(A_P, T_P, th)); }
+function rhoZh(T) { return RHO_KR * Math.exp(ryad(A_ZH, T_ZH, 1 - T / T_KR)); }
+function rhoPar(T) { return RHO_KR * Math.exp(ryad(A_PAR, T_PAR, 1 - T / T_KR)); }
+
+/* Заполнения ампул, доли критической плотности. */
+var DOLI = [0.7, 1.0, 1.3];
+
+/* Температура, при которой изохора ρ̄ выходит из купола: ρп(T) = ρ̄ при
+   ρ̄ < ρкр, ρж(T) = ρ̄ при ρ̄ > ρкр. Делением отрезка пополам; у
+   критического заполнения выход в самой критической точке. */
+function vyhod(rho) {
+  if (Math.abs(rho - RHO_KR) < 1e-9) return T_KR;
+  var f = rho < RHO_KR ? function (T) { return rhoPar(T) - rho; } : function (T) { return rhoZh(T) - rho; };
+  var lo = 220, hi = T_KR - 1e-9;
+  if (f(lo) * f(hi) > 0) return null;
+  for (var i = 0; i < 100; i++) { var m = (lo + hi) / 2; if (f(lo) * f(m) <= 0) hi = m; else lo = m; }
+  return (lo + hi) / 2;
+}
+
+/* Состояние ампулы при температуре T: доля жидкости по объёму и число фаз. */
+function ampula(k, T) {
+  var rho = k * RHO_KR;
+  if (T >= T_KR) return { k: k, rho: rho, dolya: null, fazy: 1, kak: 'odna' };
+  var zh = rhoZh(T), par = rhoPar(T), x = (rho - par) / (zh - par);
+  if (x <= 0) return { k: k, rho: rho, dolya: 0, fazy: 1, kak: 'par' };
+  if (x >= 1) return { k: k, rho: rho, dolya: 1, fazy: 1, kak: 'zhidk' };
+  return { k: k, rho: rho, dolya: x, fazy: 2, kak: 'dve' };
+}
+
+function sostoyanie(tC) {
+  var T = tC + 273.15, niz = T < T_KR;
+  return {
+    tC: tC, T_K: T,
+    p_MPa: niz ? pNas(T) : null, p_atm: niz ? pNas(T) / ATM : null,
+    rho_zh: niz ? rhoZh(T) : null, rho_par: niz ? rhoPar(T) : null,
+    ampuly: DOLI.map(function (k) { return ampula(k, T); })
+  };
+}
+
+var VYHOD = DOLI.map(function (k) { var T = vyhod(k * RHO_KR); return T == null ? null : T - 273.15; });
+
+/* Русская запятая и настоящий минус. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+/* ── конец чистой физики ── */
+
+var W = 1000, HGT = 450;
+var T_MIN = 15, T_MAX = 36;                    /* °C, ползунок и ось графика */
+var CV_AMP = ['94,200,255', '255,180,84', '255,122,138'];   /* цвета ампул и их изохор */
+var CV_CO2 = '110,160,240';                    /* вещество в ампуле */
+var IMENA = ['левая', 'средняя', 'правая'];
+
+/* Темп нагрева на экране, К/с: условный, у критической точки медленнее. */
+function temp(tC) { return 0.03 + 0.6 * Math.pow(Math.min(1, Math.abs(T_KR - 273.15 - tC) / 2), 1.5); }
+
+function Ampuly() {
+  var B = useRef(null);
+  if (!B.current) B.current = { tC: 20, hod: 0 };
+  var b = B.current;
+  var _t = useState(0), tik = _t[1];
+  function obnovit() { tik(function (n) { return n + 1; }); }
+
+  var S = sostoyanie(b.tC);
+  window.__demoState = S;
+
+  function step(dt) {
+    if (!b.hod) return;
+    var t = b.tC + b.hod * temp(b.tC) * dt;
+    if (t >= T_MAX) { t = T_MAX; b.hod = 0; }
+    if (t <= T_MIN) { t = T_MIN; b.hod = 0; }
+    b.tC = t;
+    window.__demoState = sostoyanie(t);
+    obnovit();
+  }
+
+  /* ── сцена: ампулы ── */
+  var AX = [75, 215, 355], AW = 72, AY = 70, AH = 280;
+
+  function zalivka(rho) { return 'rgba(' + CV_CO2 + ',' + (0.08 + 0.55 * rho / 1000).toFixed(3) + ')'; }
+
+  function risAmpulu(ctx, i, a, S, tone) {
+    var cx = AX[i], x0 = cx - AW / 2, yB = AY + AH, ink = tone.ink;
+    /* вещество: две фазы или одна */
+    ctx.save();
+    C.roundRect(ctx, x0 + 3, AY + 3, AW - 6, AH - 6, 8);
+    ctx.clip();
+    if (a.fazy === 2) {
+      var yU = yB - a.dolya * AH;
+      ctx.fillStyle = zalivka(S.rho_par); ctx.fillRect(x0, AY, AW, yU - AY);
+      ctx.fillStyle = zalivka(S.rho_zh); ctx.fillRect(x0, yU, AW, yB - yU);
+      /* мениск: контраст по разности плотностей фаз */
+      var kontr = C.clamp((S.rho_zh - S.rho_par) / 400, 0, 1);
+      ctx.strokeStyle = 'rgba(' + ink + ',' + (0.9 * kontr).toFixed(3) + ')';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(x0, yU - 5 * kontr);
+      ctx.quadraticCurveTo(cx, yU + 5 * kontr, x0 + AW, yU - 5 * kontr); ctx.stroke();
+    } else {
+      ctx.fillStyle = zalivka(a.rho); ctx.fillRect(x0, AY, AW, AH);
+    }
+    ctx.restore();
+    /* стекло и запаянный кончик */
+    ctx.fillStyle = 'rgba(' + ink + ',.04)';
+    C.roundRect(ctx, x0, AY, AW, AH, 10); ctx.fill();
+    ctx.strokeStyle = 'rgba(' + ink + ',.7)'; ctx.lineWidth = 2.5;
+    C.roundRect(ctx, x0, AY, AW, AH, 10); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - 11, AY); ctx.lineTo(cx - 4, AY - 18); ctx.lineTo(cx, AY - 26);
+    ctx.lineTo(cx + 4, AY - 18); ctx.lineTo(cx + 11, AY); ctx.stroke();
+    /* подписи */
+    C.label(ctx, cx, 382, num(a.rho, 0) + ' кг/м³', 18, 'rgb(' + CV_AMP[i] + ')');
+    C.label(ctx, cx, 406, num(a.k, 1) + ' от крит.', 17, 'rgba(' + tone.muted + ',.95)');
+    var slovo = a.kak === 'dve' ? 'жидкость ' + num(100 * a.dolya, 0) + ' %'
+      : a.kak === 'par' ? 'выкипела' : a.kak === 'zhidk' ? 'заполнила' : 'одна фаза';
+    C.label(ctx, cx, 432, slovo, 18, 'rgb(' + ink + ')');
+  }
+
+  /* ── сцена: плотность–температура ── */
+  var PX0 = 520, PX1 = 975, PY0 = 112, PY1 = 380, RMAX = 1000;
+  function px(rho) { return PX0 + rho / RMAX * (PX1 - PX0); }
+  function py(tC) { return PY1 - (tC - T_MIN) / (T_MAX - T_MIN) * (PY1 - PY0); }
+
+  /* Купол: от T_MIN до критической точки по θ с загущением у вершины. */
+  var KUPOL = (function () {
+    var th0 = 1 - (T_MIN + 273.15) / T_KR, par = [], zh = [];
+    for (var i = 0; i <= 240; i++) {
+      var s = 1 - i / 240, th = th0 * s * s * s, T = T_KR * (1 - th);
+      par.push([rhoPar(T), T - 273.15]); zh.push([rhoZh(T), T - 273.15]);
+    }
+    return { par: par, zh: zh };
+  })();
+
+  function risGrafik(ctx, S, tone) {
+    var ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)', tKr = T_KR - 273.15;
+    /* оси и деления */
+    ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(PX0, PY0 - 6); ctx.lineTo(PX0, PY1); ctx.lineTo(PX1, PY1); ctx.stroke();
+    for (var r = 0; r <= 1000; r += 200) {
+      ctx.beginPath(); ctx.moveTo(px(r), PY1); ctx.lineTo(px(r), PY1 + 6); ctx.stroke();
+      C.label(ctx, px(r), PY1 + 26, String(r), 17, mut);
+    }
+    for (var t = 15; t <= 35; t += 5) {
+      ctx.beginPath(); ctx.moveTo(PX0 - 6, py(t)); ctx.lineTo(PX0, py(t)); ctx.stroke();
+      C.label(ctx, PX0 - 10, py(t) + 6, String(t), 17, mut, 'right');
+    }
+    C.label(ctx, PX1, PY1 + 52, 'плотность, кг/м³', 17, mut, 'right');
+    C.label(ctx, PX0 + 8, PY0 - 4, 't, °C', 17, mut, 'left');
+    /* купол сосуществования */
+    ctx.beginPath();
+    KUPOL.par.forEach(function (p, i) { if (i) ctx.lineTo(px(p[0]), py(p[1])); else ctx.moveTo(px(p[0]), py(p[1])); });
+    for (var j = KUPOL.zh.length - 1; j >= 0; j--) ctx.lineTo(px(KUPOL.zh[j][0]), py(KUPOL.zh[j][1]));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(' + CV_CO2 + ',.13)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(' + ink + ',.85)'; ctx.lineWidth = 2; ctx.stroke();
+    /* критическая изотерма и точка */
+    ctx.setLineDash([3, 5]); ctx.strokeStyle = 'rgba(' + tone.muted + ',.6)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(PX0, py(tKr)); ctx.lineTo(PX1, py(tKr)); ctx.stroke();
+    ctx.setLineDash([]);
+    C.label(ctx, PX1, py(tKr) - 8, 'tкр = ' + num(tKr, 1) + ' °C', 17, mut, 'right');
+    /* области */
+    C.label(ctx, px(490), py(16.4), 'две фазы', 17, mut);
+    C.label(ctx, px(40), py(19), 'пар', 17, mut, 'left');
+    C.label(ctx, PX1, py(19), 'жидкость', 17, mut, 'right');
+    /* изохоры ампул */
+    S.ampuly.forEach(function (a, i) {
+      ctx.setLineDash([6, 6]); ctx.strokeStyle = 'rgba(' + CV_AMP[i] + ',.7)'; ctx.lineWidth = 1.8;
+      ctx.beginPath(); ctx.moveTo(px(a.rho), PY1); ctx.lineTo(px(a.rho), PY0); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    /* связующая прямая при текущей температуре: концы дают плотности фаз */
+    if (S.rho_zh != null) {
+      var y = py(S.tC);
+      ctx.strokeStyle = 'rgba(' + ink + ',.6)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(px(S.rho_par), y); ctx.lineTo(px(S.rho_zh), y); ctx.stroke();
+      [S.rho_par, S.rho_zh].forEach(function (r) {
+        ctx.fillStyle = 'rgb(' + ink + ')'; ctx.beginPath(); ctx.arc(px(r), y, 4, 0, 6.284); ctx.fill();
+      });
+    }
+    ctx.fillStyle = 'rgb(' + tone.accent + ')';
+    ctx.beginPath(); ctx.arc(px(RHO_KR), py(tKr), 5, 0, 6.284); ctx.fill();
+    /* точки ампул */
+    S.ampuly.forEach(function (a, i) {
+      var x = px(a.rho), y = py(S.tC);
+      C.glow(ctx, x, y, 18, CV_AMP[i], .35);
+      ctx.fillStyle = 'rgb(' + CV_AMP[i] + ')';
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, 6.284); ctx.fill();
+    });
+  }
+
+  /* Кадр считает состояние заново по b.tC: __demoTick в скрытой вкладке
+     двигает температуру и рисует раньше, чем React перерисует разметку. */
+  function draw(ctx) {
+    var tone = C.tones(ctx), S = sostoyanie(b.tC);
+    window.__demoState = S;
+    S.ampuly.forEach(function (a, i) { risAmpulu(ctx, i, a, S, tone); });
+    risGrafik(ctx, S, tone);
+    C.readout(ctx, 610, 26, 'ТЕМПЕРАТУРА, °C', num(S.tC, 2), 'rgb(' + tone.accent + ')');
+    C.readout(ctx, 800, 26, 'ДАВЛЕНИЕ, АТМ', num(S.p_atm, 1), 'rgb(' + tone.ink + ')');
+    C.readout(ctx, 990, 26, 'ρж − ρп, кг/м³', S.rho_zh == null ? '—' : num(S.rho_zh - S.rho_par, 0), 'rgb(' + tone.ink + ')');
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+  function postavit(tC) { b.tC = C.clamp(tC, T_MIN, T_MAX); obnovit(); }
+  function hod(n) {
+    if (n === 1 && b.tC >= T_MAX) b.tC = 20;
+    if (n === -1 && b.tC <= T_MIN) b.tC = 20;
+    b.hod = b.hod === n ? 0 : n; obnovit();
+  }
+
+  /* Для автопроверки: __demoSet({ tC, hod }) ставит ручки и возвращает
+     показания; __demoModel даёт счёт для сверки. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.tC != null) b.tC = o.tC;
+    if (o.hod != null) b.hod = o.hod;
+    obnovit();
+    return sostoyanie(b.tC);
+  };
+  window.__demoModel = { pNas: pNas, rhoZh: rhoZh, rhoPar: rhoPar, ampula: ampula, sostoyanie: sostoyanie,
+                         vyhod: VYHOD, konst: { T_KR: T_KR, P_KR: P_KR, RHO_KR: RHO_KR, ATM: ATM, DOLI: DOLI } };
+
+  /* ── строка показаний ── */
+  function slova() {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var tKr = T_KR - 273.15, a = S.ampuly;
+    if (S.rho_zh == null)
+      return 'Выше ' + num(tKr, 1) + ' °C мениска нет ни в одной ампуле: жидкость и пар больше не различаются, и в каждой ампуле одна фаза ' +
+        'со своей плотностью. Средняя ампула прошла через саму критическую точку, крайние вышли из купола раньше. ' +
+        'Давление в однофазной ампуле демка не считает: для него нужно полное уравнение состояния.';
+    var t = 'При ' + num(S.tC, 2) + ' °C давление пара ' + A(num(S.p_atm, 1) + ' атм') + ', плотность пара ' + num(S.rho_par, 0) +
+      ' кг/м³, жидкости ' + num(S.rho_zh, 0) + ' кг/м³. ';
+    var dve = a.filter(function (x) { return x.fazy === 2; }).length;
+    if (dve === 3)
+      return t + 'Плотности фаз во всех трёх ампулах одни и те же, заполнение решает только, сколько места занимает жидкость: ' +
+        A(num(100 * a[0].dolya, 0) + ', ' + num(100 * a[1].dolya, 0) + ' и ' + num(100 * a[2].dolya, 0) + ' %') + '. При нагреве в левой мениск опускается, в правой поднимается.';
+    var kr = [];
+    if (a[0].kak === 'par') kr.push('в левой жидкость выкипела при ' + num(VYHOD[0], 2) + ' °C, её изохора вышла из купола по ветви пара');
+    if (a[2].kak === 'zhidk') kr.push('в правой жидкость расширилась и заполнила ампулу при ' + num(VYHOD[2], 2) + ' °C, изохора вышла по ветви жидкости');
+    t += kr.length ? kr.join('; ').replace(/^в/, 'В') + '. ' : '';
+    t += 'В средней мениск стоит около середины и бледнеет: плотности фаз сходятся.';
+    if (tKr - S.tC < 0.3)
+      t += ' Настоящая ампула здесь мутнеет, это критическая опалесценция; демка её не рисует.';
+    return t;
+  }
+
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Slider} label="Температура:" min=${T_MIN} max=${T_MAX} step=${0.01} value=${b.tC}
+                     onChange=${postavit} display=${num(b.tC, 2) + ' °C'} />
+        <${C.Group}>
+          <${C.Btn} active=${b.hod === 1} onClick=${function () { hod(1); }}>Нагревать<//>
+          <${C.Btn} active=${b.hod === -1} onClick=${function () { hod(-1); }}>Остужать<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Ampuly);
+</script>
+</body>
+</html>
