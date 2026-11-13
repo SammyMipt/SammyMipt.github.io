@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Изотерма Ван-дер-Ваальса</title>
+<link rel="stylesheet" href="../shared/demo.css">
+<style>
+/* Местные правила, как у «ракеты» и «обратного квадрата»: demo.css общий.
+   Аудит 10.11, кадр 53 колоды, iframe 1190 × 575.
+
+   Строка показаний держит высоту самой длинной своей фразы. В кадре колоды
+   фраза бывает в три строки и в две, на критической изотерме и выше она
+   короче. Строка росла и опадала, и холст под ней прыгал на 17–27 px,
+   в приборе как раз там, где «Нагревать» встаёт на τ = 1. Под видимым
+   текстом лежат две невидимые фразы, самая длинная на равенстве μ и самая
+   длинная при сдвиге, обе жирным, то есть с запасом; высоту задаёт
+   большая из трёх при любой ширине кадра. Текст прижат к верху, первая
+   строка не ездит. Нижние индексы строку не раздвигают: с ними она была
+   выше на 2,6 px. */
+.status.izo-status { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.izo-status > span, .izo-status::before, .izo-status::after { grid-area: 1 / 1; }
+.izo-status::before, .izo-status::after { visibility: hidden; font-weight: 600; }
+.izo-status::before { content: attr(data-ten-mu); }
+.izo-status::after { content: attr(data-ten-sdvig); }
+.status sub { line-height: 0; }
+
+/* Рейка в один ряд на ширине кадра колоды, и в приборе, и в витрине.
+   Значению ползунка хватает десяти знаков моноширинного шрифта
+   («π = 0,5730», «петли нет»), общие 88 px шире. Длиннее десяти знаков
+   значений нет, поэтому ширина постоянная и рейка не дрожит. Ползунки
+   короче на 30 px; в узком кадре их ширину задаёт demo.css, 100 px. */
+.control-value { min-width: 10ch; }
+@media (min-width: 761px) and (min-height: 421px) { .slider { width: 160px; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-11/">&larr; Неделя 11</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=izoterma-vdv"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Доводка недели 11, 10.11 (бриф briefs/proizvodstvo11_dovodka.md, раздел
+   «Демка: изотерма Ван-дер-Ваальса»; рамка briefs/lekciya11_ramka.md §5:
+   ползунок τ и горизонталь по равенству μ, физика считается). Блоки главы
+   izotermy-van-der-vaalsa, ris-pravilo-maksvella, kriticheskie-parametry,
+   обёртка fazovye-perehody/demka-izoterma-vdv.
+
+   ИЗОТЕРМА. Приведённое уравнение главы (kriticheskie-parametry,
+   #privedennoe-uravnenie), (π + 3/φ²)(φ − 1/3) = 8τ/3, решённое
+   относительно давления: π(φ) = 8τ/(3φ − 1) − 3/φ². Ниже τ = 1 у изотермы
+   два экстремума: точка 2 (минимум) и точка 3 (максимум), корни
+   dπ/dφ = 0, то есть 4τφ³ = (3φ − 1)². Между ними dπ/dφ > 0, участок 2–3
+   неустойчив (модуль сжатия восьмой недели вышел бы отрицательным).
+
+   ГОРИЗОНТАЛЬ. Высота π_нас подбирается делением отрезка пополам так,
+   чтобы химические потенциалы жидкости в точке 1 и пара в точке 4 были
+   равны. Разность потенциалов берётся ровно как в главе (#integral):
+   N_A(μ₄ − μ₁) = ∫ v dP по изотерме от 1 до 4, через всю петлю; в
+   приведённых переменных это P_кр v_кр ∫ φ (dπ/dφ) dφ. Интеграл считается
+   численно, квадратурой Гаусса по пяти узлам на 64 отрезках, отдельно на
+   кусках 1–2, 2–3, 3–4, где подынтегральное гладко. Готовых таблиц и
+   замкнутой формулы для μ демка не держит.
+
+   ПЛОЩАДИ. Площадь петли под горизонталью ∫(π_нас − π)dφ от точки 1 до
+   среднего корня и над ней ∫(π − π_нас)dφ от среднего корня до точки 4
+   считаются другой квадратурой, по самой кривой π(φ). В счёт горизонтали
+   они не входят, и их равенство не заложено, а получается: интеграл
+   по частям из главы (#ravnye-ploshchadi) даёт N_A(μ₄ − μ₁) = площадь под
+   минус площадь над (в единицах P_кр v_кр). Демка показывает обе стороны
+   этого тождества отдельно.
+
+   СДВИНУТАЯ ГОРИЗОНТАЛЬ (ручка «Горизонталь»). Та же пара интегралов на
+   высоте, которую задаёт рука. Вверх она ходит до 0,9 пути к точке 3,
+   вниз до 0,9 пути к точке 2, но не ниже высоты, где конец пара уходит
+   за край сцены (φ = 4,3). Площади там не равны, потенциалы концов тоже,
+   и разность потенциалов равна разности площадей.
+
+   БИНОДАЛЬ И СПИНОДАЛЬ. Концы горизонталей и экстремумы тем же счётом
+   (квадратура на 16 отрезках, для рисунка хватает с запасом) на 90
+   температурах от 0,80 до критической, гуще у неё; сходятся в точке К,
+   φ = π = 1. Критическая изотерма: перегиб, нуль d²π/dφ², ищется делением
+   пополам на отрезке φ от 0,7 до 1,3; наклон там dπ/dφ. Выше τ = 1
+   экстремумов нет, изотерма монотонна.
+
+   ЧИСЛА (python, briefs/lekciya11_skripty/proizvodstvo/izoterma_vdv.py:
+   корни numpy, горизонталь brentq по замкнутой формуле приведённой
+   энергии Гиббса, площади scipy.quad; совпали с этим кодом до 10⁻⁹):
+   τ = 0,875: π_нас = 0,5730, φ = 0,5760 и 2,7124 (глава), средний корень
+   1,1170, точка 2 (0,6934; 0,2407), точка 3 (1,6243; 0,6704), петли
+   0,09721 и 0,09721 (рисунок ris-pravilo-maksvella). τ = 0,95: φ = 0,6841
+   и 1,7271 (глава: 0,68 и 1,73). τ = 0,80: π_нас = 0,3834, φ = 0,5174 и
+   4,1725, дно петли π = −0,368 (ниже τ = 27/32 = 0,844 оно под нулём).
+   τ = 1: перегиб в φ = 1, π = 1, наклон 0. Сдвиг +0,5 при τ = 0,875:
+   π = 0,6168, площади 0,1232 и 0,0380, N_A(μ₄ − μ₁) = +0,0852. */
+
+var TAU_MIN = 0.80, TAU_MAX = 1.10;
+var F_KRAJ = 4.3;                       /* конец пара сдвинутой горизонтали держится на сцене */
+
+function piF(f, t) { return 8 * t / (3 * f - 1) - 3 / (f * f); }
+function dpiF(f, t) { var u = 3 * f - 1; return -24 * t / (u * u) + 6 / (f * f * f); }
+function d2piF(f, t) { var u = 3 * f - 1; return 144 * t / (u * u * u) - 18 / (f * f * f * f); }
+
+/* Деление пополам: g(lo) и g(hi) разных знаков; до соседних чисел double. */
+function popolam(g, lo, hi) {
+  var glo = g(lo), n = 0;
+  for (; n < 300; n++) {
+    var m = 0.5 * (lo + hi);
+    if (m <= lo || m >= hi) break;
+    var gm = g(m);
+    if (gm === 0) return { x: m, n: n };
+    if ((gm > 0) === (glo > 0)) { lo = m; glo = gm; } else hi = m;
+  }
+  return { x: 0.5 * (lo + hi), n: n };
+}
+
+/* Квадратура Гаусса, пять узлов на каждом из m отрезков. */
+var GX = [-0.9061798459386640, -0.5384693101056831, 0, 0.5384693101056831, 0.9061798459386640];
+var GW = [0.2369268850561891, 0.4786286704993665, 0.5688888888888889, 0.4786286704993665, 0.2369268850561891];
+function integral(fn, a, b, m) {
+  var h = (b - a) / m, s = 0;
+  for (var k = 0; k < m; k++) {
+    var c = a + (k + 0.5) * h;
+    for (var j = 0; j < 5; j++) s += GW[j] * fn(c + 0.5 * h * GX[j]);
+  }
+  return 0.5 * h * s;
+}
+
+/* Экстремумы при τ < 1: 4τφ³ = (3φ − 1)²; φ = 1 всегда между ними. */
+function ekstremumy(t) {
+  if (!(t < 1)) return null;
+  var q = function (f) { var u = 3 * f - 1; return 4 * t * f * f * f - u * u; };
+  var f2 = popolam(q, 1 / 3 + 1e-12, 1).x, f3 = popolam(q, 1, 20).x;
+  return { phi2: f2, pi2: piF(f2, t), phi3: f3, pi3: piF(f3, t) };
+}
+
+/* Три корня π(φ) = p по монотонным кускам изотермы. */
+function korni(t, p, E) {
+  var g = function (f) { return piF(f, t) - p; };
+  var f1 = popolam(g, 1 / 3 + 1e-12, E.phi2).x;
+  var fs = popolam(g, E.phi2, E.phi3).x;
+  var b = 2 * E.phi3, k = 0;
+  while (piF(b, t) > p && k++ < 80) b *= 2;
+  var f4 = popolam(g, E.phi3, b).x;
+  return [f1, fs, f4];
+}
+
+/* N_A(μ₄ − μ₁)/(P_кр v_кр) = ∫ φ dπ по изотерме от жидкости до пара. */
+function dmuMezhdu(t, f1, f4, E, m) {
+  var fn = function (f) { return f * dpiF(f, t); };
+  return integral(fn, f1, E.phi2, m) + integral(fn, E.phi2, E.phi3, m) + integral(fn, E.phi3, f4, m);
+}
+
+/* Горизонталь по равенству потенциалов. Разность μ₄ − μ₁ растёт с
+   высотой (её производная по p равна φ₄ − φ₁ > 0), поэтому корень один. */
+function maxwell(t, m) {
+  var E = ekstremumy(t);
+  if (!E) return null;
+  m = m || 64;
+  var lo = Math.max(E.pi2, 0) + 1e-12 * (E.pi3 - Math.max(E.pi2, 0)), hi = E.pi3 - 1e-12;
+  var r = popolam(function (p) {
+    var k = korni(t, p, E);
+    return dmuMezhdu(t, k[0], k[2], E, m);
+  }, lo, hi);
+  var k = korni(t, r.x, E);
+  return { pi: r.x, phi1: k[0], phiS: k[1], phi4: k[2], E: E, iter: r.n };
+}
+
+/* Площади петель и разность потенциалов на горизонтали высоты p. */
+function gorizontal(t, p, E, m) {
+  m = m || 64;
+  var k = korni(t, p, E), f1 = k[0], fs = k[1], f4 = k[2];
+  var pod = integral(function (f) { return p - piF(f, t); }, f1, E.phi2, m) +
+            integral(function (f) { return p - piF(f, t); }, E.phi2, fs, m);
+  var nad = integral(function (f) { return piF(f, t) - p; }, fs, E.phi3, m) +
+            integral(function (f) { return piF(f, t) - p; }, E.phi3, f4, m);
+  var dmu = dmuMezhdu(t, f1, f4, E, m);
+  return { pi: p, phi1: f1, phiS: fs, phi4: f4, pod: pod, nad: nad, dmu: dmu };
+}
+
+/* Высота сдвинутой горизонтали: s от −1 до 1, ноль даёт равенство μ. */
+function vysota(t, M, s) {
+  if (!s) return M.pi;
+  var niz = Math.max(M.E.pi2, piF(F_KRAJ, t));
+  return s > 0 ? M.pi + 0.9 * s * (M.E.pi3 - M.pi) : M.pi + 0.9 * s * (M.pi - niz);
+}
+
+/* Перегиб: d²π/dφ² = 0 на отрезке 0,7–1,3; при τ = 1 это критическая точка. */
+function peregib(t) {
+  if (!(d2piF(0.7, t) > 0 && d2piF(1.3, t) < 0)) return null;
+  var f = popolam(function (x) { return d2piF(x, t); }, 0.7, 1.3).x;
+  return { phi: f, pi: piF(f, t), naklon: dpiF(f, t) };
+}
+
+/* Бинодаль и спинодаль: 90 температур от 0,80, гуще к критической. */
+var KRIVYE = (function () {
+  var bl = [], br = [], sl = [], sr = [];
+  for (var i = 0; i < 90; i++) {
+    var s = 1 - i / 90, t = 1 - (1 - TAU_MIN) * s * s, M = maxwell(t, 16);
+    bl.push([M.phi1, M.pi]); br.push([M.phi4, M.pi]);
+    sl.push([M.E.phi2, M.E.pi2]); sr.push([M.E.phi3, M.E.pi3]);
+  }
+  var K = [1, 1];
+  return { binodal: bl.concat([K], br.reverse()), spinodal: sl.concat([K], sr.reverse()) };
+})();
+
+var KESH = {};
+function sostoyanie(t, s) {
+  var key = t + '|' + s;
+  if (KESH[key]) return KESH[key];
+  var S = { tau: t, sdvig: s, rezhim: s ? 'sdvig' : 'mu', petlya: t < 1,
+            kriticheskaya: Math.abs(t - 1) < 1e-12, peregib: peregib(t),
+            pi_nas: null, phi_zh: null, phi_sred: null, phi_par: null, tochka2: null, tochka3: null,
+            gorizontal: null, ploshchad_pod: null, ploshchad_nad: null, raznost_ploshchadej_otn: null,
+            dmu: null, dmu_minus_raznost: null, iter: null };
+  if (S.petlya) {
+    var M = maxwell(t), E = M.E, G = gorizontal(t, vysota(t, M, s), E);
+    S.pi_nas = M.pi; S.phi_zh = M.phi1; S.phi_sred = M.phiS; S.phi_par = M.phi4; S.iter = M.iter;
+    S.tochka2 = { phi: E.phi2, pi: E.pi2 }; S.tochka3 = { phi: E.phi3, pi: E.pi3 };
+    S.gorizontal = { pi: G.pi, phi1: G.phi1, phiS: G.phiS, phi4: G.phi4 };
+    S.ploshchad_pod = G.pod; S.ploshchad_nad = G.nad;
+    S.raznost_ploshchadej_otn = Math.abs(G.pod - G.nad) / Math.max(G.pod, G.nad);
+    S.dmu = G.dmu; S.dmu_minus_raznost = G.dmu - (G.pod - G.nad);
+  }
+  var n = 0; for (var k in KESH) n++;
+  if (n > 400) KESH = {};
+  KESH[key] = S;
+  return S;
+}
+
+/* Русская запятая и настоящий минус. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+/* Три значащие цифры; мелкое со степенью десяти. */
+var STEP = { '-': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
+function znach(v) {
+  if (v == null || !isFinite(v)) return '—';
+  if (v === 0) return '0';
+  var e = Math.floor(Math.log10(Math.abs(v)));
+  if (e >= -3) return num(v, Math.max(0, 2 - e));
+  var mant = v / Math.pow(10, e);
+  return num(mant, 2) + '·10' + String(e).split('').map(function (c) { return STEP[c]; }).join('');
+}
+/* ── конец чистой физики ── */
+
+/* ── строка показаний ── */
+function slova(S) {
+  var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+  var t = S.tau;
+  if (S.kriticheskaya)
+    return 'Критическая изотерма, τ = 1. Петли больше нет: точки 1–4 сошлись в точку перегиба ' + A('К, φ = 1 и π = 1') +
+      ', и касательная в ней горизонтальна. В ней сходятся бинодаль и спинодаль. Объёмы жидкости и пара здесь сравнялись, ' +
+      'и различие между ними пропало.';
+  if (!S.petlya)
+    return 'При τ = ' + num(t, 3) + ' изотерма монотонна: давление падает с ростом объёма, как у идеального газа. ' +
+      'Петли и горизонтали нет, и сжатый газ густеет, нигде не расслаиваясь на жидкость и пар.';
+  var G = S.gorizontal;
+  if (S.rezhim === 'mu') {
+    var s = 'При τ = ' + num(t, 3) + ' горизонталь стоит на ' + A('π = ' + num(S.pi_nas, 4)) +
+      ': на этой высоте химические потенциалы жидкости в точке 1 (φ = ' + num(S.phi_zh, 4) + ') и пара в точке 4 (φ = ' +
+      num(S.phi_par, 4) + ') равны. Площади петель под горизонталью и над ней ' + A(znach(S.ploshchad_pod) + ' и ' +
+      znach(S.ploshchad_nad)) + '. Участки 1–2 и 3–4 метастабильны: перегретая жидкость и пересыщенный пар. ' +
+      'На участке 2–3 однородного вещества не бывает.';
+    if (S.tochka2.pi < 0) s += ' Давление в точке 2 у модели отрицательно.';
+    return s;
+  }
+  var vverh = G.pi > S.pi_nas;
+  return 'Горизонталь ' + (vverh ? 'поднята' : 'опущена') + ' до ' + A('π = ' + num(G.pi, 4)) +
+    ', а равенство потенциалов ставит её на ' + num(S.pi_nas, 4) + '. Площадь петли под ней ' + znach(S.ploshchad_pod) +
+    ', над ней ' + znach(S.ploshchad_nad) + ', и на ту же разность разошлись потенциалы концов: ' +
+    A('N<sub>A</sub>(μ<sub>п</sub> − μ<sub>ж</sub>) = ' + num(S.dmu, 4)) + ' в единицах P<sub>кр</sub>v<sub>кр</sub>. ' +
+    (vverh ? 'При этом давлении потенциал пара выше, чем у жидкости, и устойчива жидкость'
+           : 'При этом давлении потенциал жидкости выше, чем у пара, и устойчив пар') +
+    ': две фазы на такой горизонтали вместе не живут.';
+}
+
+/* Самые длинные фразы строки показаний, текстом без разметки: под видимым
+   текстом они держат высоту строки (правило .izo-status в шапке). Длина
+   фразы зависит от режима и от записи чисел. На равенстве μ длиннее всех
+   фразы ниже τ = 0,844, где добавлена фраза об отрицательном давлении.
+   При сдвиге длиннее всех подъём у самой критической: площади там мелкие
+   и пишутся со степенью десяти. Перебор всех положений ручек, 61 по τ на
+   201 по сдвигу (node, 10.11), длиннее этих двух фраз не нашёл: в них 371
+   и 344 знака, у критической изотермы и выше не больше 243. */
+var TEN = (function () {
+  function tekst(t, s) { return slova(sostoyanie(t, s)).replace(/<[^>]+>/g, ''); }
+  function dlinnee(a, b) { return b.length > a.length ? b : a; }
+  var mu = '', sdvig = '';
+  [0.80, 0.84].forEach(function (t) { mu = dlinnee(mu, tekst(t, 0)); });
+  [0.80, 0.98, 0.99, 0.995].forEach(function (t) {
+    sdvig = dlinnee(dlinnee(sdvig, tekst(t, 1)), tekst(t, -1));
+  });
+  return { mu: mu, sdvig: sdvig };
+})();
+
+var W = 1000, HGT = 460;
+var X0 = 80, X1 = 975, Y0 = 96, Y1 = 420;          /* окно графика */
+var F0 = 0.40, F1 = 4.40, P0 = -0.40, P1 = 1.30;   /* φ и π на краях окна */
+var SX = (X1 - X0) / (F1 - F0), SY = (Y1 - Y0) / (P1 - P0);
+function X(f) { return X0 + (f - F0) * SX; }
+function Y(p) { return Y1 - (p - P0) * SY; }
+
+var CV_IZO = '86,160,240';      /* изотерма и горизонталь равенства μ */
+var CV_POD = '236,120,62';      /* петля под горизонталью */
+var CV_NAD = '77,182,198';      /* петля над горизонталью */
+var SKOROST = 0.02;             /* τ в секунду при «Нагревать» и «Остужать» */
+
+/* Точки кривой с шагом около 2,5 пикселя вдоль неё. */
+function put(t, a, b) {
+  var pts = [[X(a), Y(piF(a, t))]], f = a, n = 0;
+  while (f < b && n++ < 5000) {
+    var s = Math.sqrt(SX * SX + Math.pow(SY * dpiF(f, t), 2));
+    f = Math.min(b, f + Math.max(1e-6, Math.min(0.02, 2.5 / s)));
+    pts.push([X(f), Y(piF(f, t))]);
+  }
+  return pts;
+}
+function polyline(ctx, pts) {
+  ctx.beginPath();
+  pts.forEach(function (p, i) { if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); });
+}
+/* Где жидкая ветвь входит в окно сверху. */
+function verh(t, E) {
+  var b = E ? E.phi2 : F1;
+  return popolam(function (f) { return piF(f, t) - (P1 + 0.05); }, 1 / 3 + 1e-9, b).x;
+}
+
+function Izoterma() {
+  var B = useRef(null);
+  if (!B.current) B.current = { tau: 0.875, sdvig: 0, hod: 0 };
+  var b = B.current;
+  var _t = useState(0), tik = _t[1];
+  function obnovit() { tik(function (n) { return n + 1; }); }
+
+  var S = sostoyanie(b.tau, b.sdvig);
+  window.__demoState = S;
+
+  /* «Нагревать» и «Остужать» ведут τ и останавливаются на критической
+     изотерме, чтобы её было видно; следующее нажатие ведёт дальше. */
+  function step(dt) {
+    if (!b.hod) return;
+    var t = b.tau + b.hod * SKOROST * dt;
+    if (b.tau < 1 && t >= 1 && b.hod === 1) { t = 1; b.hod = 0; }
+    if (b.tau > 1 && t <= 1 && b.hod === -1) { t = 1; b.hod = 0; }
+    if (t >= TAU_MAX) { t = TAU_MAX; b.hod = 0; }
+    if (t <= TAU_MIN) { t = TAU_MIN; b.hod = 0; }
+    b.tau = t;
+    window.__demoState = sostoyanie(b.tau, b.sdvig);
+    obnovit();
+  }
+
+  function risOsi(ctx, tone) {
+    var ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)';
+    ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(X0, Y0 - 6); ctx.lineTo(X0, Y1); ctx.lineTo(X1, Y1); ctx.stroke();
+    /* разрыв оси объёма: она начата с 0,4, а не с нуля */
+    ctx.beginPath();
+    ctx.moveTo(X0 + 9, Y1 + 6); ctx.lineTo(X0 + 15, Y1 - 6);
+    ctx.moveTo(X0 + 15, Y1 + 6); ctx.lineTo(X0 + 21, Y1 - 6); ctx.stroke();
+    for (var f = 1; f <= 4; f++) {
+      ctx.beginPath(); ctx.moveTo(X(f), Y1); ctx.lineTo(X(f), Y1 + 6); ctx.stroke();
+      C.label(ctx, X(f), Y1 + 24, String(f), 17, mut);
+    }
+    [0, 0.5, 1].forEach(function (p) {
+      ctx.beginPath(); ctx.moveTo(X0 - 6, Y(p)); ctx.lineTo(X0, Y(p)); ctx.stroke();
+      C.label(ctx, X0 - 10, Y(p) + 6, num(p, p % 1 ? 1 : 0), 17, mut, 'right');
+    });
+    /* нуль давления */
+    ctx.strokeStyle = 'rgba(' + ink + ',.18)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(X0, Y(0)); ctx.lineTo(X1, Y(0)); ctx.stroke();
+    C.label(ctx, X0 - 10, Y0 + 8, 'π', 19, 'rgb(' + ink + ')', 'right');
+    C.label(ctx, X1, Y1 + 24, 'φ', 19, 'rgb(' + ink + ')', 'right');
+  }
+
+  function risLegendu(ctx, tone, sdvinuta) {
+    var ink = 'rgba(' + tone.ink + ',.9)', gr = 'rgba(' + tone.muted + ',.95)';
+    var ryady = [
+      [['устойчиво', 'rgba(' + CV_IZO + ',1)', 3.5, []], ['метастабильно', 'rgba(' + CV_IZO + ',.6)', 1.8, []],
+       ['неустойчиво', 'rgba(' + CV_IZO + ',1)', 2, [7, 6]]],
+      [['бинодаль', gr, 1.6, [8, 6]], ['спинодаль', gr, 2.2, [1, 5]]]
+    ];
+    if (sdvinuta) ryady.push([['сдвинутая горизонталь', 'rgb(' + tone.accent + ')', 3, []]]);
+    ctx.font = '17px "Golos Text", system-ui, sans-serif';
+    ryady.forEach(function (ryad, i) {
+      var x = 520, y = 116 + 26 * i;
+      ryad.forEach(function (e) {
+        ctx.strokeStyle = e[1]; ctx.lineWidth = e[2]; ctx.setLineDash(e[3]); ctx.lineCap = e[3][0] === 1 ? 'round' : 'butt';
+        ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x + 30, y - 6); ctx.stroke();
+        ctx.setLineDash([]); ctx.lineCap = 'butt';
+        C.label(ctx, x + 38, y, e[0], 17, ink, 'left');
+        x += 38 + ctx.measureText(e[0]).width + 22;
+      });
+    });
+  }
+
+  function tochka(ctx, x, y, r, cvet, polaya) {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 6.284);
+    if (polaya) { ctx.lineWidth = 2; ctx.strokeStyle = cvet; ctx.stroke(); }
+    else { ctx.fillStyle = cvet; ctx.fill(); }
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, S = sostoyanie(b.tau, b.sdvig), t = S.tau;
+    window.__demoState = S;
+    var E = S.petlya ? { phi2: S.tochka2.phi, pi2: S.tochka2.pi, phi3: S.tochka3.phi, pi3: S.tochka3.pi } : null;
+    var G = S.gorizontal, sdv = S.petlya && S.rezhim === 'sdvig';
+    risOsi(ctx, tone);
+
+    ctx.save();
+    ctx.beginPath(); ctx.rect(X0, Y0, X1 - X0, Y1 - Y0); ctx.clip();
+    /* петли: заливка между кривой и текущей горизонталью */
+    if (S.petlya) {
+      /* на тёмном полотне заливке нужна большая альфа, иначе оранжевое бурое */
+      var svetl = ink.split(',').reduce(function (a, c) { return a + +c; }, 0) > 382;
+      [[G.phi1, G.phiS, CV_POD], [G.phiS, G.phi4, CV_NAD]].forEach(function (z) {
+        polyline(ctx, put(t, z[0], z[1])); ctx.closePath();
+        ctx.fillStyle = 'rgba(' + z[2] + ',' + (svetl ? '.45' : '.34') + ')'; ctx.fill();
+      });
+    }
+    /* бинодаль и спинодаль */
+    var gr = 'rgba(' + tone.muted + ',.95)';
+    ctx.strokeStyle = gr; ctx.lineWidth = 1.6; ctx.setLineDash([8, 6]);
+    polyline(ctx, KRIVYE.binodal.map(function (p) { return [X(p[0]), Y(p[1])]; })); ctx.stroke();
+    ctx.lineWidth = 2.2; ctx.setLineDash([1, 5]); ctx.lineCap = 'round';
+    polyline(ctx, KRIVYE.spinodal.map(function (p) { return [X(p[0]), Y(p[1])]; })); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineCap = 'butt';
+    /* изотерма */
+    var izo = 'rgba(' + CV_IZO + ',1)', top = verh(t, E);
+    ctx.lineJoin = 'round';
+    if (!S.petlya) {
+      ctx.strokeStyle = izo; ctx.lineWidth = 3.5; polyline(ctx, put(t, top, F1)); ctx.stroke();
+    } else {
+      ctx.strokeStyle = izo; ctx.lineWidth = 3.5;
+      polyline(ctx, put(t, top, S.phi_zh)); ctx.stroke();
+      polyline(ctx, put(t, S.phi_par, F1)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(S.phi_zh), Y(S.pi_nas)); ctx.lineTo(X(S.phi_par), Y(S.pi_nas)); ctx.stroke();
+      ctx.strokeStyle = 'rgba(' + CV_IZO + ',.6)'; ctx.lineWidth = 1.8;
+      polyline(ctx, put(t, S.phi_zh, E.phi2)); ctx.stroke();
+      polyline(ctx, put(t, E.phi3, S.phi_par)); ctx.stroke();
+      ctx.strokeStyle = izo; ctx.lineWidth = 2; ctx.setLineDash([7, 6]);
+      polyline(ctx, put(t, E.phi2, E.phi3)); ctx.stroke();
+      ctx.setLineDash([]);
+      if (sdv) {
+        ctx.strokeStyle = 'rgb(' + tone.accent + ')'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(X(G.phi1), Y(G.pi)); ctx.lineTo(X(G.phi4), Y(G.pi)); ctx.stroke();
+      }
+    }
+    /* критическая точка; на критической изотерме касательная горизонтальна */
+    if (S.kriticheskaya) {
+      ctx.strokeStyle = 'rgba(' + tone.accent + ',.85)'; ctx.lineWidth = 1.6; ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(X(0.72), Y(1)); ctx.lineTo(X(1.28), Y(1)); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+
+    var tch = 'rgb(' + ink + ')';
+    C.glow(ctx, X(1), Y(1), 16, tone.accent, .3);
+    tochka(ctx, X(1), Y(1), 5.5, 'rgb(' + tone.accent + ')');
+    /* у малой петли подписи точек 1–4 стоят вплотную к К: букву убираем */
+    if (!S.petlya || X(S.phi_par) - X(S.phi_zh) >= 150)
+      C.label(ctx, X(1) + 10, Y(1) - 10, 'К', 18, 'rgb(' + tone.accent + ')', 'left');
+
+    if (S.petlya) {
+      var x1 = X(S.phi_zh), x4 = X(S.phi_par), yN = Y(S.pi_nas);
+      var x2 = X(E.phi2), y2 = Y(E.pi2), x3 = X(E.phi3), y3 = Y(E.pi3);
+      if (x4 - x1 > 20) {
+        [[x1, yN], [x2, y2], [x3, y3], [x4, yN]].forEach(function (p) { tochka(ctx, p[0], p[1], 4.5, tch); });
+      }
+      if (x4 - x1 > 40) {
+        C.label(ctx, x1 - 12, yN + 6, '1', 18, tch, 'right');
+        C.label(ctx, x2, y2 + 24, '2', 18, tch);
+        C.label(ctx, x3, y3 - 12, '3', 18, tch);
+        C.label(ctx, x4 + 9, yN - 9, '4', 18, tch, 'left');
+      }
+      if (sdv) {
+        tochka(ctx, X(G.phi1), Y(G.pi), 5, 'rgb(' + tone.accent + ')', true);
+        tochka(ctx, X(G.phi4), Y(G.pi), 5, 'rgb(' + tone.accent + ')', true);
+      }
+      /* слова фаз: у жидкой ветви и у хвоста пара */
+      var mut = 'rgba(' + tone.muted + ',.95)';
+      var fz = popolam(function (f) { return piF(f, t) - 1.15; }, 1 / 3 + 1e-9, E.phi2).x;
+      C.label(ctx, X(fz) + 12, Y(1.15) + 6, 'жидкость', 17, mut, 'left');
+      C.label(ctx, X1 - 4, Y(piF(F1 - 0.15, t)) + 28, 'пар', 17, mut, 'right');
+    }
+
+    risLegendu(ctx, tone, sdv);
+
+    var piCv = sdv ? 'rgb(' + tone.accent + ')' : 'rgb(' + CV_IZO + ')';
+    C.readout(ctx, 175, 26, 'τ = T/Tкр', num(t, 3), 'rgb(' + ink + ')');
+    C.readout(ctx, 380, 26, 'π ГОРИЗОНТАЛИ', S.petlya ? num(G.pi, 4) : '—', piCv);
+    C.readout(ctx, 585, 26, 'ПЕТЛЯ ПОД', S.petlya ? znach(S.ploshchad_pod) : '—', 'rgb(' + CV_POD + ')');
+    C.readout(ctx, 790, 26, 'ПЕТЛЯ НАД', S.petlya ? znach(S.ploshchad_nad) : '—', 'rgb(' + CV_NAD + ')');
+    C.readout(ctx, 990, 26, 'μп − μж', S.petlya ? num(S.dmu, 4) : '—', 'rgb(' + ink + ')');
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+  function postavitTau(v) { b.tau = C.clamp(v, TAU_MIN, TAU_MAX); obnovit(); }
+  function postavitSdvig(v) { b.sdvig = C.clamp(v, -1, 1); obnovit(); }
+  function hod(n) {
+    if (n === 1 && b.tau >= TAU_MAX) b.tau = TAU_MIN;
+    if (n === -1 && b.tau <= TAU_MIN) b.tau = TAU_MAX;
+    b.hod = b.hod === n ? 0 : n; obnovit();
+  }
+
+  /* Для автопроверки: __demoSet({ tau, sdvig, hod }) ставит ручки и
+     возвращает показания; __demoModel даёт счёт для сверки. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.tau != null) b.tau = o.tau;
+    if (o.sdvig != null) b.sdvig = o.sdvig;
+    if (o.hod != null) b.hod = o.hod;
+    obnovit();
+    return sostoyanie(b.tau, b.sdvig);
+  };
+  window.__demoModel = { piF: piF, dpiF: dpiF, d2piF: d2piF, ekstremumy: ekstremumy, korni: korni,
+                         maxwell: maxwell, gorizontal: gorizontal, dmuMezhdu: dmuMezhdu, vysota: vysota,
+                         peregib: peregib, sostoyanie: sostoyanie, krivye: KRIVYE,
+                         konst: { TAU_MIN: TAU_MIN, TAU_MAX: TAU_MAX, F_KRAJ: F_KRAJ, SKOROST: SKOROST } };
+
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Slider} label="Температура:" min=${TAU_MIN} max=${TAU_MAX} step=${0.005} value=${b.tau}
+                     onChange=${postavitTau} display=${'τ = ' + num(b.tau, 3)} />
+        <${C.Group}>
+          <${C.Btn} active=${b.hod === 1} onClick=${function () { hod(1); }}>Нагревать<//>
+          <${C.Btn} active=${b.hod === -1} onClick=${function () { hod(-1); }}>Остужать<//>
+        <//>
+        <${C.Slider} label="Горизонталь:" min=${-1} max=${1} step=${0.01} value=${b.sdvig}
+                     onChange=${postavitSdvig} display=${S.petlya ? 'π = ' + num(S.gorizontal.pi, 4) : 'петли нет'} />
+        <${C.Group}>
+          <${C.Btn} active=${b.sdvig === 0} onClick=${function () { postavitSdvig(0); }}>Равенство μ<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <div class="status izo-status" data-ten-mu=${TEN.mu} data-ten-sdvig=${TEN.sdvig}>
+        <span dangerouslySetInnerHTML=${{ __html: slova(S) }}></span>
+      </div>
+    </div>`;
+}
+
+C.mount(Izoterma);
+</script>
+</body>
+</html>

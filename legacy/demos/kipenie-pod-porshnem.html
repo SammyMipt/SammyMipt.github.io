@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Кипение под поршнем</title>
+<link rel="stylesheet" href="../shared/demo.css">
+<style>
+/* Местные правила, как у «изотермы Ван-дер-Ваальса»: demo.css общий.
+   Строка показаний держит высоту самой длинной своей фразы: под видимым
+   текстом лежит невидимая самая длинная фраза (с запасом в несколько
+   знаков на жирные числа), и высоту задаёт большая из двух при любой
+   ширине кадра. Иначе строка росла бы и опадала при переходе от льда к
+   кипению, и холст под ней прыгал. Текст прижат к верху. */
+.status.kp-status { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.kp-status > span, .kp-status::before { grid-area: 1 / 1; }
+.kp-status::before { visibility: hidden; content: attr(data-ten); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-11/">&larr; Неделя 11</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=kipenie-pod-porshnem"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Три демки к лекции 12.11 (бриф briefs/proizvodstvo11_tri_demki.md,
+   раздел «Демка Б: Кипение под поршнем»). Блоки главы uravnenie-klapejrona,
+   ravnovesie-zhidkost-par, ravnovesie-zhidkost-tverdoe; обёртка
+   fazovye-perehody/demka-kipenie-pod-porshnem. Отчёт
+   briefs/proizvodstvo11_demka-kipenie-pod-porshnem_REPORT.md.
+
+   ОПЫТ. Моль воды (18,015 г) в цилиндре под поршнем; груз держит
+   давление P постоянным. Горелка подводит тепло с постоянной мощностью
+   2 кВт, и подведённое тепло Q (на моль, отсчёт ото льда при −20 °C)
+   задаёт состояние вместе с P. При постоянном давлении тепло идёт в
+   энтальпию, поэтому Q считается кусками:
+       лёд        Q = cл (T − T₀),                    T₀ = −20 °C
+       плавление  полка длиной qпл = 6,01 кДж/моль при Tпл(P)
+       вода       Q = Q₂ + cв (T − Tпл)
+       кипение    полка длиной q(Tкип) при Tкип(P), доля пара x = (Q − Q₃)/q
+       пар        Q = Q₄ + cп (T − Tкип)           до 150 °C
+   Теплоёмкости на моль постоянны, как у рисунка ris-mu-ot-t
+   (briefs/lekciya11_skripty/risunki/r2_mu_ot_t.py): лёд 37,8, вода 75,3,
+   пар 33,6 Дж/(моль·К).
+
+   ПЛАВЛЕНИЕ. 0 °C при 1 атм, сдвиг давлением по наклону линии плавления
+   главы, −133 атм/К (ravnovesie-zhidkost-tverdoe): от 0,5 до 4 атм
+   температура плавления меняется от +0,004 до −0,023 °C. Теплота
+   плавления 6,01 кДж/моль от давления не зависит.
+
+   КИПЕНИЕ. Давление насыщенного пара и плотности воды и пара на линии
+   насыщения по вспомогательным уравнениям IAPWS SR1-86 (1992),
+   W. Wagner, A. Pruss, J. Phys. Chem. Ref. Data 22, 783 (1993):
+       ln(pн/pкр) = (Tкр/T)(a₁θ + a₂θ^1,5 + a₃θ³ + a₄θ^3,5 + a₅θ⁴ + a₆θ^7,5),
+       ρ'/ρкр = 1 + Σ bᵢ θ^(…), ln(ρ''/ρкр) = Σ cᵢ θ^(…),   θ = 1 − T/Tкр;
+   Tкр = 647,096 К, pкр = 22,064 МПа, ρкр = 322 кг/м³. Температура
+   кипения есть корень pн(T) = P (метод Ньютона по ln p). Теплота
+   испарения из того же источника: h'' − h' = T (dpн/dT)(1/ρ'' − 1/ρ'),
+   это уравнение Клапейрона–Клаузиуса на точной линии насыщения, а не
+   постоянная q главы (глава в ravnovesie-zhidkost-par считает цену этого
+   упрощения). dpн/dT берётся аналитически.
+   Сверка с таблицей насыщения NIST WebBook (IAPWS-95; числа из
+   briefs/lekciya11_skripty/proizvodstvo/avtorB11.py): давление до 0,005 %,
+   теплота испарения от −0,015 % (у 0 °C) до +0,009 % при 0…200 °C;
+   Tкип при 1 атм 99,9743 °C, при 2 атм 120,627 °C (NIST 99,9743 и 120,627).
+
+   ОБЪЁМ. Лёд 916,7 кг/м³ (глава); вода с плотностью ρ'(T) того же
+   источника (сжатием грузом до 4 атм пренебрегаем, это 0,02 %); пар
+   идеальный газ, V = nRT/P. На 1 атм у идеального пара 30,6 л на моль,
+   у настоящего 30,14 (глава); разница 1,6 %, она же в главе «по
+   идеальному газу 1629 раз против 1604».
+
+   ЧИСЛА (python briefs/lekciya11_skripty/proizvodstvo/kipenie-pod-porshnem.py
+   и этот код через hcheck, порт 49973, совпали до 10⁻⁹):
+       P, атм   tкип, °C   полка кипения, кДж/моль   vп/vж
+       0,5       81,64          41,506                 3137
+       1,0       99,97          40,654                 1629
+       2,0      120,63          39,644                  845
+       4,0      144,08          38,411                  438
+   Полка плавления 6,01 при любом P. Всё тепло до пара при 150 °C:
+   56,63 кДж/моль при 1 атм, 56,72 при 0,5 атм и 56,23 при 4 атм.
+   Энтальпия идеального пара от давления не зависит, и конец пути у всех
+   давлений почти один; разброс 0,49 кДж/моль даёт постоянство
+   теплоёмкостей. Давление ниже 0,5 атм ползунок не даёт: ответ задачи
+   об Эвересте (71 °C) читаться с экрана не должен.
+
+   КАРТИНКА ОБЪЁМА. Пар больше воды в сотни и тысячи раз, поэтому шкала
+   высоты в цилиндре ломаная: нижние 100 точек сцены отданы 25 см³
+   (4 точки на см³, лёд, вода и поршень над ними видны в этой лупе), выше
+   излома 196 точек на 70 л (2,8 точки на литр). Внутри каждого куска
+   высота пропорциональна объёму, излом подписан делениями «см³» и «л».
+   Поэтому на полке кипения поршень над изломом идёт вверх равномерно,
+   вместе с долей пара. */
+
+var R = 8.314462618, ATM = 101325, M = 18.015268e-3;   /* Дж/(моль·К), Па, кг/моль */
+var C_LED = 37.8, C_VODA = 75.3, C_PAR = 33.6;          /* Дж/(моль·К) */
+var Q_PL = 6010, NAKLON_PL = -133, T_PL0 = 273.15;      /* Дж/моль, атм/К, К */
+var RHO_LED = 916.7;                                    /* кг/м³ */
+var T_NACH = 253.15, T_KON = 423.15;                    /* −20 и 150 °C */
+var P_MIN = 0.5, P_MAX = 4;                             /* атм */
+var MOSHCHNOST = 2000;                                  /* Вт */
+
+var TC = 647.096, PC = 22.064e6, RC = 322;
+var A_P = [-7.85951783, 1.84408259, -11.7866497, 22.6807411, -15.9618719, 1.80122502],
+    E_P = [1, 1.5, 3, 3.5, 4, 7.5];
+var B_ZH = [1.99274064, 1.09965342, -0.510839303, -1.75493479, -45.5170352, -6.74694450e5],
+    E_ZH = [1 / 3, 2 / 3, 5 / 3, 16 / 3, 43 / 3, 110 / 3];
+var C_PR = [-2.03150240, -2.68302940, -5.38626492, -17.2991605, -44.7586581, -63.9201063],
+    E_PR = [2 / 6, 4 / 6, 8 / 6, 18 / 6, 37 / 6, 71 / 6];
+
+function ryad(a, e, th) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i] * Math.pow(th, e[i]); return s; }
+/* Давление насыщенного пара, Па. */
+function pNas(T) { return PC * Math.exp(TC / T * ryad(A_P, E_P, 1 - T / TC)); }
+/* d ln pн / dT = −(ln(pн/pкр) + S'(θ))/T, где S = Σ aᵢ θ^eᵢ. */
+function dlnpdT(T) {
+  var th = 1 - T / TC, s = 0, ds = 0;
+  for (var i = 0; i < A_P.length; i++) { s += A_P[i] * Math.pow(th, E_P[i]); ds += A_P[i] * E_P[i] * Math.pow(th, E_P[i] - 1); }
+  return -(TC / T * s + ds) / T;
+}
+function dpdT(T) { return pNas(T) * dlnpdT(T); }
+function rhoZh(T) { return RC * (1 + ryad(B_ZH, E_ZH, 1 - T / TC)); }
+function rhoPar(T) { return RC * Math.exp(ryad(C_PR, E_PR, 1 - T / TC)); }
+/* Теплота испарения, Дж/моль: h'' − h' по Вагнеру–Пруссу. */
+function qIsp(T) { return T * dpdT(T) * M * (1 / rhoPar(T) - 1 / rhoZh(T)); }
+/* Температура кипения при давлении P (Па): Ньютон по ln p. */
+function tKip(P) {
+  var T = 373.15, lnP = Math.log(P);
+  for (var i = 0; i < 40; i++) {
+    var d = (Math.log(pNas(T)) - lnP) / dlnpdT(T);
+    T -= d;
+    if (Math.abs(d) < 1e-12) break;
+  }
+  return T;
+}
+function tPl(P) { return T_PL0 + (P / ATM - 1) / NAKLON_PL; }
+
+/* Концы кусков пути при давлении P (Па), всё в Дж/моль и К. */
+var KESH = {};
+function kuski(P) {
+  var key = P.toFixed(3);
+  if (KESH[key]) return KESH[key];
+  var Tm = tPl(P), Tb = tKip(P), q = qIsp(Tb);
+  var Q1 = C_LED * (Tm - T_NACH), Q2 = Q1 + Q_PL, Q3 = Q2 + C_VODA * (Tb - Tm), Q4 = Q3 + q,
+      Q5 = Q4 + C_PAR * (T_KON - Tb);
+  return (KESH[key] = { P: P, Tm: Tm, Tb: Tb, q: q, Q1: Q1, Q2: Q2, Q3: Q3, Q4: Q4, Q5: Q5 });
+}
+
+/* Состояние после тепла Q при давлении P: температура, стадия, доля
+   растаявшего f, доля пара x, объёмы льда, воды и пара (м³). */
+function sostoyanie(Q, P) {
+  var k = kuski(P);
+  Q = C.clamp(Q, 0, k.Q5);
+  var T, f = 0, x = 0, st;
+  if (Q < k.Q1) { st = 'лёд'; T = T_NACH + Q / C_LED; }
+  else if (Q < k.Q2) { st = 'плавление'; T = k.Tm; f = (Q - k.Q1) / Q_PL; }
+  else if (Q < k.Q3) { st = 'вода'; T = k.Tm + (Q - k.Q2) / C_VODA; f = 1; }
+  else if (Q < k.Q4) { st = 'кипение'; T = k.Tb; f = 1; x = (Q - k.Q3) / k.q; }
+  else { st = 'пар'; T = k.Tb + (Q - k.Q4) / C_PAR; f = 1; x = 1; }
+  var Vled = (1 - f) * M / RHO_LED, Vzh = f * (1 - x) * M / rhoZh(Math.max(T, k.Tm)),
+      Vpar = x * R * T / P;
+  var vZhKip = M / rhoZh(k.Tb), vParKip = R * k.Tb / P;
+  return {
+    P: P, P_atm: P / ATM, Q: Q, T: T, t: T - 273.15, stadiya: st, f: f, x: x,
+    Vled: Vled, Vzh: Vzh, Vpar: Vpar, V: Vled + Vzh + Vpar,
+    tPl: k.Tm - 273.15, tKip: k.Tb - 273.15, q: k.q, polkaPl: Q_PL,
+    Q1: k.Q1, Q2: k.Q2, Q3: k.Q3, Q4: k.Q4, Q5: k.Q5,
+    vZhKip: vZhKip, vParKip: vParKip, razy: vParKip / vZhKip, konec: Q >= k.Q5
+  };
+}
+
+/* Русская запятая и настоящий минус. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+/* Два значащих знака для «во сколько раз». */
+function dvaZnaka(v) { var p = Math.pow(10, Math.floor(Math.log10(v)) - 1); return String(Math.round(v / p) * p); }
+/* ── конец чистой физики ── */
+
+/* ── строка показаний ── */
+var K1 = kuski(ATM);
+function slova(S) {
+  var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+  var tm = num(S.tPl, 3) + ' °C', tb = num(S.tKip, 1) + ' °C', t;
+  if (S.stadiya === 'лёд')
+    t = 'Лёд греется: на каждый кельвин уходит 37,8 Дж. Таять он начнёт при ' + A(tm) + '.';
+  else if (S.stadiya === 'плавление')
+    t = 'Лёд тает при ' + A(tm) + ', растаяло ' + num(100 * S.f, 0) + ' %. Тепло идёт, а температура стоит, пока лёд не получит все 6,01 кДж/моль. ' +
+      'Вода плотнее льда, и поршень чуть опускается.';
+  else if (S.stadiya === 'вода')
+    t = 'Вода греется: на кельвин уходит 75,3 Дж, вдвое больше, чем у льда. Закипит она при ' + A(tb) +
+      ', когда давление её насыщенного пара сравняется с давлением под поршнем.';
+  else if (S.stadiya === 'кипение')
+    t = 'Вода кипит при ' + A(tb) + ', выкипело ' + num(100 * S.x, 0) + ' %. Температура стоит, тепло уходит на испарение: вся полка ' +
+      num(S.q / 1000, 2) + ' кДж/моль. Пар в ' + dvaZnaka(S.razy) + ' раз просторнее воды, и поршень уходит вверх.';
+  else if (!S.konec)
+    t = 'Воды не осталось, пар греется: на кельвин уходит 33,6 Дж. Груз держит давление, поэтому объём пара растёт вместе с температурой.';
+  else
+    t = 'Пар нагрет до 150 °C. Из ' + num(S.Q5 / 1000, 2) + ' кДж/моль, подведённых ото льда при −20 °C, на кипение ушло ' +
+      num(S.q / 1000, 2) + ', на плавление 6,01, остальное на нагрев.';
+  if (Math.abs(S.P_atm - 1) >= 0.005) {
+    var dB = S.tKip - (K1.Tb - 273.15), dM = S.tPl;
+    t += ' По сравнению с 1 атм кипение ' + (dB > 0 ? 'выше' : 'ниже') + ' на ' + num(Math.abs(dB), 1) + ' К, а плавление ' +
+      (dM > 0 ? 'выше' : 'ниже') + ' на ' + num(Math.abs(dM), 3) + ' К.';
+  }
+  return t;
+}
+/* Самая длинная фраза держит высоту строки (правило .kp-status в шапке):
+   перебор давлений ползунка и точек на каждом куске пути. Запас в пять
+   знаков покрывает жирные числа видимой фразы. */
+var TEN = (function () {
+  var best = '';
+  for (var p = P_MIN; p <= P_MAX + 1e-9; p += 0.05) {
+    var P = p * ATM, k = kuski(P);
+    [0.5 * k.Q1, k.Q1 + 0.555 * Q_PL, 0.5 * (k.Q2 + k.Q3), k.Q3 + 0.555 * k.q, 0.5 * (k.Q4 + k.Q5), k.Q5].forEach(function (Q) {
+      var s = slova(sostoyanie(Q, P)).replace(/<[^>]+>/g, '');
+      if (s.length > best.length) best = s;
+    });
+  }
+  return best + ' ммммм';
+})();
+
+var W = 1000, HGT = 450;
+
+/* ── сцена: цилиндр ── */
+var CX0 = 75, CX1 = 177, YB = 372, YTOP = 24, SX = 60;
+var V_IZLOM = 25e-6, H_IZLOM = 100, V_VERH = 70e-3, H_VERH = 296;
+/* Ломаная шкала высоты: до 25 см³ по 4 точки на см³, выше по 2,8 на литр. */
+function hV(V) {
+  return V <= V_IZLOM ? V / V_IZLOM * H_IZLOM : H_IZLOM + (V - V_IZLOM) / (V_VERH - V_IZLOM) * (H_VERH - H_IZLOM);
+}
+var CV_LED = '178,220,245', CV_VODA = '64,138,230', CV_PAR = '150,190,240', CV_OGON = '255,150,60';
+/* Дробная часть: места точек пара из детерминированного хэша. */
+function drob(v) { return v - Math.floor(v); }
+
+/* ── сцена: график ── */
+var GX0 = 470, GX1 = 980, GY0 = 40, GY1 = 382, QMAX = 60000, TMIN = -30, TMAX = 160;
+function gx(Q) { return GX0 + Q / QMAX * (GX1 - GX0); }
+function gy(tC) { return GY1 - (tC - TMIN) / (TMAX - TMIN) * (GY1 - GY0); }
+/* Ломаная T(Q) при давлении P до тепла Qdo: точно по кускам модели. */
+function lomanaya(P, Qdo) {
+  var k = kuski(P), c = 273.15;
+  var pts = [[0, T_NACH - c], [k.Q1, k.Tm - c], [k.Q2, k.Tm - c], [k.Q3, k.Tb - c], [k.Q4, k.Tb - c], [k.Q5, T_KON - c]];
+  var out = [pts[0]];
+  for (var i = 1; i < pts.length; i++) {
+    if (pts[i][0] <= Qdo) { out.push(pts[i]); continue; }
+    var a = pts[i - 1], b = pts[i], s = (Qdo - a[0]) / (b[0] - a[0]);
+    out.push([Qdo, a[1] + s * (b[1] - a[1])]);
+    break;
+  }
+  return out;
+}
+
+function Kipenie() {
+  var B = useRef(null);
+  if (!B.current) B.current = { Q: 0, P: ATM, hod: false, uskor: false, vremya: 0 };
+  var b = B.current;
+  var _t = useState(0), tik = _t[1];
+  function obnovit() { tik(function (n) { return n + 1; }); }
+
+  var S = sostoyanie(b.Q, b.P);
+  window.__demoState = S;
+
+  function step(dt) {
+    b.vremya += dt;
+    if (!b.hod) return;
+    var k = kuski(b.P);
+    b.Q += MOSHCHNOST * (b.uskor ? 5 : 1) * dt;
+    if (b.Q >= k.Q5) { b.Q = k.Q5; b.hod = false; }
+    window.__demoState = sostoyanie(b.Q, b.P);
+    obnovit();
+  }
+
+  function risCilindr(ctx, S, tone) {
+    var ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)';
+    /* шкала объёма слева: два куска с изломом */
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1.5;
+    var yI = YB - H_IZLOM;
+    ctx.beginPath(); ctx.moveTo(SX, YB); ctx.lineTo(SX, yI + 5); ctx.moveTo(SX, yI - 5); ctx.lineTo(SX, YB - H_VERH); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(SX - 6, yI + 7); ctx.lineTo(SX + 6, yI + 3); ctx.moveTo(SX - 6, yI - 3); ctx.lineTo(SX + 6, yI - 7); ctx.stroke();
+    [[0, '0'], [10e-6, '10 см³'], [20e-6, '20 см³'], [20e-3, '20 л'], [40e-3, '40 л'], [60e-3, '60 л']].forEach(function (d) {
+      var y = YB - hV(d[0]);
+      ctx.beginPath(); ctx.moveTo(SX - 5, y); ctx.lineTo(SX, y); ctx.stroke();
+      C.label(ctx, SX - 8, y + 6, d[1], 17, mut, 'right');
+    });
+    C.label(ctx, SX - 6, YTOP - 6, 'объём', 17, mut, 'center');
+
+    var hLed = hV(S.Vled), hZh = hV(S.Vzh), hVse = hV(S.V);
+    var yZh = YB - hZh, yLed = YB - hV(S.Vzh + S.Vled), yP = YB - hVse;
+    /* пар: от поверхности до поршня. Точек столько, сколько пара (40 на
+       моль), разбросаны они по всему пару ровно: на полке объём над
+       изломом и число точек растут вместе, и густота пара на картинке
+       почти не меняется, как и при постоянных температуре и давлении. */
+    if (S.Vpar > 0) {
+      ctx.fillStyle = 'rgba(' + CV_PAR + ',.16)';
+      ctx.fillRect(CX0, yP, CX1 - CX0, yLed - yP);
+      var nT = Math.round(40 * S.x), vys = yLed - yP;
+      ctx.fillStyle = 'rgba(' + CV_PAR + ',.9)';
+      for (var m = 0; m < nT && vys > 8; m++) {
+        var u = drob(Math.sin(m * 12.9898 + 1.7) * 43758.5453), v = drob(Math.sin(m * 78.233 + 0.3) * 24634.6345);
+        ctx.beginPath(); ctx.arc(CX0 + 6 + u * (CX1 - CX0 - 12), yP + 4 + v * (vys - 8), 2.2, 0, 6.284); ctx.fill();
+      }
+    }
+    /* вода снизу, лёд над ней (лёд легче и всплывает) */
+    if (S.Vzh > 0) {
+      ctx.fillStyle = 'rgba(' + CV_VODA + ',.8)'; ctx.fillRect(CX0, yZh, CX1 - CX0, YB - yZh);
+    }
+    if (S.Vled > 0) {
+      ctx.fillStyle = 'rgba(' + CV_LED + ',.9)'; ctx.fillRect(CX0 + 2, yLed, CX1 - CX0 - 4, yZh - yLed);
+      ctx.strokeStyle = 'rgba(90,150,200,.9)'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(CX0 + 2, yLed, CX1 - CX0 - 4, yZh - yLed);
+      /* грани кристаллов */
+      ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var g = 0; g < 4; g++) {
+        var gx0 = CX0 + 14 + g * 24;
+        if (yZh - yLed > 16) { ctx.moveTo(gx0, yZh - 5); ctx.lineTo(gx0 + 10, yLed + 5); }
+      }
+      ctx.stroke();
+    }
+    /* пузыри: только пока горелка греет кипящую воду */
+    if (S.stadiya === 'кипение' && b.hod && YB - yZh > 10) {
+      ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 1.3;
+      for (var i = 0; i < 8; i++) {
+        var faza = (b.vremya * (0.9 + 0.13 * (i % 3)) + i * 0.137) % 1;
+        var bx = CX0 + 10 + (i * 37) % (CX1 - CX0 - 20), by = YB - 4 - faza * (YB - yZh - 8);
+        ctx.beginPath(); ctx.arc(bx, by, 2 + (i % 3), 0, 6.284); ctx.stroke();
+      }
+    }
+    /* имена фаз внутри, где хватает места */
+    var xc = (CX0 + CX1) / 2;
+    if (yZh - yLed > 24) C.label(ctx, xc, (yZh + yLed) / 2 + 6, 'лёд', 17, 'rgb(30,60,90)');
+    if (YB - yZh > 24) C.label(ctx, xc, (YB + yZh) / 2 + 6, 'вода', 17, 'rgb(240,246,255)');
+    if (yLed - yP > 34) C.label(ctx, xc, Math.min(yLed - 14, (yLed + yP) / 2 + 6), 'пар', 17, 'rgb(' + ink + ')');
+    /* стенки и дно */
+    ctx.strokeStyle = 'rgba(' + ink + ',.75)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(CX0 - 2, YTOP); ctx.lineTo(CX0 - 2, YB + 2); ctx.lineTo(CX1 + 2, YB + 2); ctx.lineTo(CX1 + 2, YTOP); ctx.stroke();
+    /* поршень и груз: груз тем больше, чем больше давление */
+    ctx.fillStyle = 'rgba(' + ink + ',.45)';
+    ctx.fillRect(CX0 + 1, yP - 12, CX1 - CX0 - 2, 12);
+    ctx.strokeStyle = 'rgba(' + ink + ',.85)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(CX0 + 1, yP - 12, CX1 - CX0 - 2, 12);
+    var hg = 10 + 8 * S.P_atm, wg = 64, xg = (CX0 + CX1) / 2 - wg / 2;
+    ctx.fillStyle = 'rgba(' + tone.muted + ',.85)';
+    C.roundRect(ctx, xg, yP - 12 - hg, wg, hg, 3); ctx.fill();
+    ctx.strokeStyle = 'rgba(' + ink + ',.6)'; ctx.stroke();
+    /* горелка */
+    var xm = (CX0 + CX1) / 2;
+    ctx.fillStyle = 'rgba(' + tone.muted + ',.7)';
+    C.roundRect(ctx, xm - 32, 414, 64, 12, 3); ctx.fill();
+    if (b.hod) {
+      for (var j = 0; j < 5; j++) {
+        var fx = xm - 24 + j * 12, fh = 20 + 5 * Math.sin(b.vremya * 11 + j * 1.7) + (b.uskor ? 6 : 0);
+        C.glow(ctx, fx, 404, 14, CV_OGON, .25);
+        ctx.fillStyle = 'rgba(' + CV_OGON + ',.9)';
+        ctx.beginPath(); ctx.moveTo(fx - 5, 412); ctx.quadraticCurveTo(fx - 4, 412 - fh * 0.6, fx, 412 - fh);
+        ctx.quadraticCurveTo(fx + 4, 412 - fh * 0.6, fx + 5, 412); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(255,225,150,.9)';
+        ctx.beginPath(); ctx.moveTo(fx - 2.5, 412); ctx.quadraticCurveTo(fx, 412 - fh * 0.5, fx + 2.5, 412); ctx.closePath(); ctx.fill();
+      }
+    }
+    C.label(ctx, xm + 40, 425, '2 кВт', 17, mut, 'left');
+  }
+
+  function risGrafik(ctx, S, tone) {
+    var ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)', acc = tone.accent;
+    /* оси и деления */
+    ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(GX0, GY0 - 6); ctx.lineTo(GX0, GY1); ctx.lineTo(GX1, GY1); ctx.stroke();
+    for (var q = 0; q <= 60; q += 10) {
+      ctx.beginPath(); ctx.moveTo(gx(q * 1000), GY1); ctx.lineTo(gx(q * 1000), GY1 + 6); ctx.stroke();
+      C.label(ctx, gx(q * 1000), GY1 + 24, String(q), 17, mut);
+    }
+    [-20, 0, 50, 100, 150].forEach(function (t) {
+      ctx.beginPath(); ctx.moveTo(GX0 - 6, gy(t)); ctx.lineTo(GX0, gy(t)); ctx.stroke();
+      C.label(ctx, GX0 - 10, gy(t) + 6, num(t, 0), 17, mut, 'right');
+    });
+    C.label(ctx, GX1, GY1 + 50, 'подведённое тепло Q, кДж/моль', 17, mut, 'right');
+    C.label(ctx, GX0 + 8, GY0 - 4, 't, °C', 17, mut, 'left');
+
+    /* 1 атм для сравнения, когда груз другой */
+    var drugoe = Math.abs(S.P_atm - 1) >= 0.005;
+    if (drugoe) {
+      var g1 = lomanaya(ATM, Infinity);
+      ctx.setLineDash([6, 6]); ctx.strokeStyle = 'rgba(' + tone.muted + ',.75)'; ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      g1.forEach(function (p, i) { if (i) ctx.lineTo(gx(p[0]), gy(p[1])); else ctx.moveTo(gx(p[0]), gy(p[1])); });
+      ctx.stroke(); ctx.setLineDash([]);
+      /* легенда в пустом углу */
+      ctx.strokeStyle = 'rgb(' + acc + ')'; ctx.lineWidth = 3.5;
+      ctx.beginPath(); ctx.moveTo(GX0 + 18, GY0 + 22); ctx.lineTo(GX0 + 46, GY0 + 22); ctx.stroke();
+      C.label(ctx, GX0 + 54, GY0 + 28, num(S.P_atm, 2) + ' атм', 17, 'rgb(' + ink + ')', 'left');
+      ctx.setLineDash([6, 6]); ctx.strokeStyle = 'rgba(' + tone.muted + ',.75)'; ctx.lineWidth = 1.8;
+      ctx.beginPath(); ctx.moveTo(GX0 + 18, GY0 + 48); ctx.lineTo(GX0 + 46, GY0 + 48); ctx.stroke(); ctx.setLineDash([]);
+      C.label(ctx, GX0 + 54, GY0 + 54, '1 атм', 17, mut, 'left');
+    }
+
+    /* пройденный путь */
+    var pts = lomanaya(S.P, S.Q);
+    ctx.strokeStyle = 'rgb(' + acc + ')'; ctx.lineWidth = 3.5; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    pts.forEach(function (p, i) { if (i) ctx.lineTo(gx(p[0]), gy(p[1])); else ctx.moveTo(gx(p[0]), gy(p[1])); });
+    ctx.stroke();
+
+    /* подписи кусков, пройденных или начатых */
+    var tm = S.tPl, tb = S.tKip;
+    C.label(ctx, GX0 + 12, gy(-20) + 8, 'лёд', 17, mut, 'left');
+    if (S.Q >= S.Q1) C.label(ctx, GX0 + 22, gy(tm) + 24, 'плавление: 6,01 кДж/моль', 17, mut, 'left');
+    if (S.Q >= S.Q2) C.label(ctx, gx(0.5 * (S.Q2 + S.Q3)) + 14, gy(0.5 * (tm + tb)) + 6, 'вода', 17, mut, 'left');
+    if (S.Q >= S.Q3) C.label(ctx, gx(0.5 * (S.Q3 + S.Q4)), gy(tb) - 12, 'кипение при ' + num(tb, 1) + ' °C', 17, 'rgb(' + ink + ')');
+    if (S.Q >= S.Q4) C.label(ctx, gx(S.Q5) + 8, gy(0.5 * (tb + 150)) + 6, 'пар', 17, mut, 'left');
+
+    /* текущая точка */
+    var x = gx(S.Q), y = gy(S.t);
+    C.glow(ctx, x, y, 18, acc, .45);
+    ctx.fillStyle = 'rgb(' + acc + ')';
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, 6.284); ctx.fill();
+  }
+
+  /* Кадр считает состояние заново по b: __demoTick в скрытой вкладке
+     двигает тепло и рисует раньше, чем React перерисует разметку. */
+  function draw(ctx) {
+    var tone = C.tones(ctx), S = sostoyanie(b.Q, b.P);
+    window.__demoState = S;
+    risCilindr(ctx, S, tone);
+    risGrafik(ctx, S, tone);
+    var RX = 405, ink = 'rgb(' + tone.ink + ')';
+    C.readout(ctx, RX, 30, 'ТЕМПЕРАТУРА, °C', num(S.t, 1), 'rgb(' + tone.accent + ')');
+    C.readout(ctx, RX, 113, 'ДАВЛЕНИЕ, АТМ', num(S.P_atm, 2), ink);
+    C.readout(ctx, RX, 196, 'ДОЛЯ ПАРА, %', num(100 * S.x, 0), ink);
+    C.readout(ctx, RX, 279, 'ТЕПЛО, кДж/моль', num(S.Q / 1000, 2), ink);
+    C.readout(ctx, RX, 362, 'ПОЛКА КИПЕНИЯ, кДж/моль', num(S.q / 1000, 2), ink);
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+  function davlenie(p) {
+    b.P = C.clamp(Math.round(p * 100) / 100, P_MIN, P_MAX) * ATM;
+    b.Q = Math.min(b.Q, kuski(b.P).Q5);
+    obnovit();
+  }
+  function gret() {
+    if (!b.hod && b.Q >= kuski(b.P).Q5) b.Q = 0;
+    b.hod = !b.hod; obnovit();
+  }
+  function uskorit() { b.uskor = !b.uskor; obnovit(); }
+  function snachala() { b.Q = 0; b.hod = false; obnovit(); }
+
+  /* Для автопроверки: __demoSet({ P_atm, Q, hod, uskor }) ставит ручки и
+     возвращает показания; __demoModel даёт счёт для сверки. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.P_atm != null) b.P = C.clamp(o.P_atm, P_MIN, P_MAX) * ATM;
+    if (o.Q != null) b.Q = o.Q;
+    b.Q = C.clamp(b.Q, 0, kuski(b.P).Q5);
+    if (o.hod != null) b.hod = !!o.hod;
+    if (o.uskor != null) b.uskor = !!o.uskor;
+    obnovit();
+    return sostoyanie(b.Q, b.P);
+  };
+  window.__demoModel = { pNas: pNas, dpdT: dpdT, rhoZh: rhoZh, rhoPar: rhoPar, qIsp: qIsp, tKip: tKip, tPl: tPl,
+                         kuski: kuski, sostoyanie: sostoyanie, slova: slova, hV: hV, TEN: TEN,
+                         konst: { R: R, ATM: ATM, M: M, C_LED: C_LED, C_VODA: C_VODA, C_PAR: C_PAR, Q_PL: Q_PL,
+                                  NAKLON_PL: NAKLON_PL, RHO_LED: RHO_LED, P_MIN: P_MIN, P_MAX: P_MAX, MOSHCHNOST: MOSHCHNOST } };
+
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Slider} label="Давление:" min=${P_MIN} max=${P_MAX} step=${0.05} value=${b.P / ATM}
+                     onChange=${davlenie} display=${num(b.P / ATM, 2) + ' атм'} />
+        <${C.Group}>
+          <${C.Btn} action=${true} active=${b.hod} onClick=${gret}>Греть<//>
+          <${C.Btn} active=${b.uskor} onClick=${uskorit}>Ускорить<//>
+          <${C.Btn} onClick=${snachala}>Сначала<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <div class="status kp-status" data-ten=${TEN}>
+        <span dangerouslySetInnerHTML=${{ __html: slova(S) }}></span>
+      </div>
+    </div>`;
+}
+
+C.mount(Kipenie);
+</script>
+</body>
+</html>

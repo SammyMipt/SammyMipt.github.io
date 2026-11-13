@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Цепочка грузов: толчок с торца</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-08/">&larr; Неделя 08</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=cepochka-gruzov"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Шаг «Толчок с торца» первого акта восьмой недели (бриф
+   briefs/proizvodstvo08.md, раздел «Демки», исполнитель 1; решения автора
+   briefs/lekciya08_resheniya_ramki.md, п. 2 и 3; карточка 1 описи
+   briefs/lekciya08_demki_minuty.md §1.4; рамка §4, шаг «Толчок с торца»,
+   «Принято» п. 5 и 9). Вопрос входа: к торцу стального стержня 1 м
+   сечением 1 см² приложили постоянную силу 1 кН; как он поедет?
+
+   ЦЕПОЧКА. Стержень длиной L режется на N одинаковых кусков длиной
+   a = L/N. Кусок есть груз массой m = ρSa, соседей связывает пружинка
+   жёсткостью k = ES/a: это закон Гука σ = Eε для звена, других законов в
+   счёте нет. Сила F давит на первый груз, последний свободен. Второй закон
+   для груза i:
+
+       m ẍ_i = k (x_{i+1} − x_i) − k (x_i − x_{i−1}),
+
+   у первого груза вместо левой пружинки сила F, у последнего правой
+   пружинки нет. Формулы фронта в коде нет: скорость фронта, ступени
+   скорости торца и доли энергии выходят из счёта. Скорость длинных волн в
+   цепочке a√(k/m) = √(E/ρ) при любом N; короткие волны цепочка пропускает
+   медленнее, поэтому при малом N ступень фронта расплывается, а при
+   N → ∞ цепочка переходит в сплошной стержень.
+
+   СЧЁТ. Скоростной Верле, шаг h = a/(4c), c = √(E/ρ) (схема устойчива при
+   h < a/c). Шаг вдвое меньше устойчивого не взят нарочно: при h = a/c
+   Верле для цепочки точно повторяет сплошной стержень (так называемый
+   магический шаг), и расплывание фронта, которое и есть физика цепочки,
+   пропало бы. При a/(4c) скорость фронта отличается от счёта с a/(16c) не
+   больше чем на 2·10⁻⁴ относительных. Время идёт целыми шагами, остаток
+   кадра копится: числа не зависят от частоты кадров. Опыт идёт до 6L/c,
+   три пробега туда и обратно.
+
+   ИЗМЕРЕНИЯ. Скорость торца: смещение первого груза за последние L/(20c),
+   делённое на это время (рябь дискретной цепочки за фронтом усредняется).
+   Датчики стоят у грузов N/4 и 3N/4 и срабатывают, когда груз набрал
+   половину текущей скорости торца; скорость фронта есть расстояние между
+   датчиками, делённое на разность времён срабатывания. Ступени скорости
+   торца: среднее по смещению на отрезках от 0,25 до 1,75, от 2,25 до 3,75 и
+   от 4,25 до 5,75 в единицах L/c (между эхами).
+
+   СРАВНЕНИЕ, только для подписей и сверки. Сплошной стержень: фронт
+   ходит туда и обратно со скоростью c, каждый его проход добавляет точке
+   скорость F/(ρcS); торец едет ступенями 1, 3, 5 этой скорости, в среднем
+   с ускорением F/M, M = ρSL. Твёрдое тело: x = Ft²/(2M).
+
+   ПРОВЕРКА (15.10, python scratchpad/demki1/cepochka_model.py и прогон
+   этого кода в node; hcheck на порту 49932: __demoTick и чтение
+   __demoState, __demoCheck; отчёт briefs/proizvodstvo08_demki1_REPORT.md).
+   Сталь E = 2,0·10¹¹ Па, ρ = 7,8·10³ кг/м³: c = 5063,7 м/с, L/c = 0,1975 мс,
+   эхо 2L/c = 0,3950 мс, F/(ρcS) = 0,2532 м/с, втрое 0,7596, впятеро
+   1,2659; F/M = 1282 м/с²; деформация на фронте F/(ES) = 5·10⁻⁵.
+   Скорость фронта по датчикам при N = 20 4991 м/с (0,9857 от √(E/ρ)), 50
+   5020, 200 5047 (0,9967), 1000 5058 (0,9989): отставание убывает как
+   N^(−2/3), это расплывание фронта цепочки; при N = 3 датчики ловят
+   раскачку грузов (0,79). Скорость торца до эха при N = 200 0,253184 м/с
+   против F/(ρcS) = 0,253185. Ступени торца при N = 200 1,0000, 3,0004 и
+   4,9995 единиц F/(ρcS), при N = 20 1,0003, 2,9953 и 5,0092. Импульс
+   цепочки равен Ft до 7·10⁻¹⁶ относительных, центр масс идёт по Ft²/(2M)
+   до 8·10⁻¹⁶; к 6L/c торец сплошного стержня и твёрдое тело сходятся на
+   18 укорочениях FL/(ES), 0,90 мм, цепочка при N = 200 на 0,9006 мм. До
+   прихода фронта к концу работа делится между движением и сжатием как
+   0,503 и 0,497 при N = 200, сумма 0,99998. Отрицательный контроль: при k
+   вчетверо больше скорость фронта по датчикам вдвое больше (1,9937 от
+   √(E/ρ) при N = 200, то есть 2 × 0,9968). Python и этот код в node дают
+   одни и те же числа до последнего знака. Свинец со справочными
+   E = 1,6·10¹⁰ Па, ρ = 1,134·10⁴ кг/м³: c = 1188 м/с (опись: 1,19 км/с),
+   по датчикам при N = 200 1184, F/(ρcS) = 0,742 м/с, эхо 1,68 мс. */
+
+/* ── чистая физика ──────────────────────────────────────────────
+   Отсюда до пометки «конец чистой физики» код не знает о браузере и
+   прогоняется в node. */
+
+var L = 1, S = 1e-4, F = 1000;      /* стержень 1 м, сечение 1 см², сила 1 кН */
+var TMAX = 6;                        /* опыт до 6L/c */
+var DOLYA_SHAGA = 4;                 /* шаг a/(4c) */
+var OKNO = 0.05;                     /* окно скорости торца, в L/c */
+var MATERIALY = [
+  { id: 'stal', knopka: 'сталь', rod: 'стального', E: 2.0e11, rho: 7.8e3, Z: 1e4, Zt: '10 000' },
+  { id: 'svinec', knopka: 'свинец', rod: 'свинцового', E: 1.6e10, rho: 1.134e4, Z: 2500, Zt: '2500' }
+];
+var PO_ID = {};
+MATERIALY.forEach(function (q) { PO_ID[q.id] = q; });
+var CHISLA = [3, 4, 5, 6, 8, 10, 13, 16, 20, 25, 32, 40, 50, 64, 80, 100, 130, 160, 200,
+              250, 320, 400, 500, 640, 800, 1000];
+/* границы отрезков для ступеней скорости торца, в L/c */
+var OTREZKI = [[0.25, 1.75], [2.25, 3.75], [4.25, 5.75]];
+
+function novyj(mat, N) {
+  var c = Math.sqrt(mat.E / mat.rho), a = L / N;
+  var m = {
+    mat: mat, N: N, a: a, c: c, T: L / c,
+    mgr: mat.rho * S * a, k: mat.E * S / a, h: a / (DOLYA_SHAGA * c),
+    M: mat.rho * S * L,
+    u0: F / (mat.rho * c * S),              /* только для подписей и сверки */
+    delta: F * L / (mat.E * S),             /* укорочение под F: масштаб смещений */
+    x: new Float64Array(N), v: new Float64Array(N), A: new Float64Array(N),
+    n: 0, t: 0, nakop: 0,
+    i1: N >> 2, i2: (3 * N) >> 2, t1: null, t2: null,
+    hist: [0], vEnd: 0, granicy: [], stupeni: [null, null, null],
+    sled: [[0, 0, 0]], done: false
+  };
+  m.nw = Math.max(1, Math.round(OKNO * m.T / m.h));
+  uskoreniya(m);
+  return m;
+}
+
+function uskoreniya(m) {
+  var N = m.N, x = m.x, A = m.A, km = m.k / m.mgr, i, d;
+  for (i = 0; i < N; i++) A[i] = 0;
+  for (i = 0; i < N - 1; i++) { d = km * (x[i + 1] - x[i]); A[i] += d; A[i + 1] -= d; }
+  A[0] += F / m.mgr;
+}
+
+function dolya(v, vp, thr) {
+  var f = v - vp > 0 ? (v - thr) / (v - vp) : 0;
+  return f < 0 ? 0 : f > 1 ? 1 : f;
+}
+
+function shag(m) {
+  if (m.done) return;
+  var N = m.N, x = m.x, v = m.v, A = m.A, h = m.h, i;
+  var tp = m.t, x0p = x[0], v1p = v[m.i1], v2p = v[m.i2];
+  for (i = 0; i < N; i++) { v[i] += 0.5 * h * A[i]; x[i] += h * v[i]; }
+  uskoreniya(m);
+  for (i = 0; i < N; i++) v[i] += 0.5 * h * A[i];
+  m.n++; m.t = m.n * h;
+  m.hist.push(x[0]);
+  var j = Math.max(0, m.hist.length - 1 - m.nw);
+  m.vEnd = (x[0] - m.hist[j]) / ((m.hist.length - 1 - j) * h);
+  /* датчики: груз набрал половину скорости торца */
+  var thr = 0.5 * m.vEnd;
+  if (m.t1 == null && thr > 0 && v[m.i1] >= thr) m.t1 = m.t - h * dolya(v[m.i1], v1p, thr);
+  if (m.t2 == null && thr > 0 && v[m.i2] >= thr) m.t2 = m.t - h * dolya(v[m.i2], v2p, thr);
+  /* смещение торца на границах отрезков, линейно внутри шага */
+  for (var k = 0; k < OTREZKI.length; k++) {
+    for (var e = 0; e < 2; e++) {
+      var tb = OTREZKI[k][e] * m.T, key = 2 * k + e;
+      if (m.granicy[key] == null && tp < tb && m.t >= tb)
+        m.granicy[key] = x0p + (x[0] - x0p) * (tb - tp) / h;
+    }
+    if (m.stupeni[k] == null && m.granicy[2 * k + 1] != null)
+      m.stupeni[k] = (m.granicy[2 * k + 1] - m.granicy[2 * k]) / ((OTREZKI[k][1] - OTREZKI[k][0]) * m.T);
+  }
+  /* след торца для графика: 600 точек на опыт */
+  var last = m.sled[m.sled.length - 1];
+  if (m.t - last[0] >= TMAX * m.T / 600) m.sled.push([m.t, x[0], m.vEnd]);
+  if (m.t >= TMAX * m.T - 0.5 * h) { m.done = true; m.sled.push([m.t, x[0], m.vEnd]); }
+}
+
+/* Продвинуть на dt модельного времени целыми шагами; остаток копится. */
+function prodvinut(m, dt) {
+  m.nakop += dt;
+  var n = Math.floor(m.nakop / m.h + 1e-9);
+  if (n > 50000) n = 50000;
+  for (var i = 0; i < n && !m.done; i++) shag(m);
+  m.nakop -= n * m.h;
+  if (m.nakop < 0 || m.done) m.nakop = 0;
+}
+
+/* Сплошной стержень, для сравнения: сколько раз фронт прошёл точку xi
+   к моменту t (развёрнутый путь фронта ct, отражения у концов). */
+function prohody(m, xi, t) {
+  var s = m.c * t, n = 0, k;
+  for (k = 0; 2 * k * L + xi <= s; k++) n++;
+  for (k = 1; 2 * k * L - xi <= s; k++) n++;
+  return n;
+}
+function xStergnya(m, t) {
+  var T2 = 2 * m.T, k = Math.floor(t / T2), x = 0;
+  for (var j = 0; j < k; j++) x += (2 * j + 1) * m.u0 * T2;
+  return x + (2 * k + 1) * m.u0 * (t - k * T2);
+}
+
+function svodka(m) {
+  var N = m.N, x = m.x, v = m.v, K = 0, U = 0, P = 0, xs = 0, i, d;
+  for (i = 0; i < N; i++) { K += 0.5 * m.mgr * v[i] * v[i]; P += m.mgr * v[i]; xs += x[i]; }
+  for (i = 0; i < N - 1; i++) { d = x[i + 1] - x[i]; U += 0.5 * m.k * d * d; }
+  var W = F * x[0];
+  var cm = m.t1 != null && m.t2 != null && m.t2 > m.t1 ? (m.i2 - m.i1) * m.a / (m.t2 - m.t1) : null;
+  return {
+    material: m.mat.id, N: N, E: m.mat.E, rho: m.mat.rho, L: L, S: S, F: F,
+    c: m.c, cMeasured: cm, sensors: [m.i1, m.i2], sensorT: [m.t1, m.t2],
+    uEnd: m.vEnd, uTheory: m.u0,
+    steps: m.stupeni.slice(), stepsTheory: [m.u0, 3 * m.u0, 5 * m.u0],
+    xEnd: x[0], xRod: xStergnya(m, m.t), xRigid: F * m.t * m.t / (2 * m.M), xCM: xs / N,
+    momentum: P, Ft: F * m.t, kinetic: K, elastic: U, work: W,
+    accelRigid: F / m.M, t: m.t, tOverT: m.t / m.T, tEcho: 2 * m.T, h: m.h, done: m.done
+  };
+}
+
+/* Прогон без кадров до tOver·L/c. */
+function progonModel(m, tOver) {
+  var tk = Math.min(TMAX, tOver) * m.T, g = 0;
+  while (!m.done && m.t < tk - 0.5 * m.h && g++ < 1e7) shag(m);
+  return m;
+}
+function progon(id, N, tOver) {
+  return svodka(progonModel(novyj(PO_ID[id || 'stal'], N || 200), tOver == null ? TMAX : tOver));
+}
+/* ── конец чистой физики ── */
+
+/* Русская запятая и настоящий минус; крохи печатаются нулём. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+/* Два значащих знака: 219 → 220, 17,5 → 18. */
+function dvaZnaka(x) {
+  var p = Math.pow(10, Math.floor(Math.log10(x)) - 1);
+  return String(Math.round(x / p) * p).replace('.', ',');
+}
+function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
+
+/* ══════════════════ сцена ══════════════════
+
+   Вверху цепочка: до сорока грузов рисуются брусками на пружинках, больше
+   сливаются в стержень, по которому нанесены одиннадцать меток через
+   десятую длины. Сжатие звена окрашено тёплым цветом, груз в движении
+   бирюзовым. Смещения увеличены, чтобы движение торца было видно: восемь
+   пикселей на укорочение стержня под силой F/(ES)·L. Под стержнем в том же
+   масштабе по длине скорости грузов в текущий момент (ступенькой, по
+   куску на груз) и пунктиром то же у сплошного стержня. Внизу слева
+   скорость или положение торца от времени против твёрдого тела, справа
+   показания. */
+
+var W = 1000, HGT = 460;
+var X0 = 90, X1 = 820, PXM = X1 - X0;     /* стержень в покое, пикселей на метр */
+var RY = 70, BH = 30;                     /* ось стержня, толщина */
+var KU_PX = 8;                            /* пикселей смещения на укорочение δ */
+var GY0 = 150, GY1 = 262;                 /* профиль скорости */
+var PX0 = 86, PX1 = 560, PY0 = 318, PY1 = 416;
+var RXL = 790, RXR = 990, RY1 = 296, RY2 = 386;
+var CV = '77,182,198';                    /* цепочка, движение */
+var CS = '224,138,82';                    /* сжатие */
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function Cepochka() {
+  var ref0 = useRef(null);
+  if (!ref0.current) {
+    ref0.current = { mat: MATERIALY[0], iN: CHISLA.indexOf(20), run: true, graf: 'v', klyuch: '' };
+    ref0.current.m = novyj(ref0.current.mat, CHISLA[ref0.current.iN]);
+  }
+  var S_ = ref0.current;
+  var pair = useState({ id: S_.mat.id, iN: S_.iN, run: true, graf: 'v', klyuch: '' });
+  var ui = pair[0], setUi = pair[1];
+
+  function faza(m) {
+    if (m.done) return 4;
+    var tau = m.t / m.T;
+    return tau < 1 ? 0 : tau < 2 ? 1 : tau < 4 ? 2 : 3;
+  }
+  function snyat() {
+    var m = S_.m;
+    Object.assign(pokaz, svodka(m), { running: S_.run, graph: S_.graf });
+    var kw = pokaz.work > 0 ? Math.round(100 * pokaz.kinetic / pokaz.work) : 0;
+    var f = faza(m);
+    var kl = [f, m.t2 != null, S_.run, f < 2 ? kw + '|' + num(m.vEnd, 3) : f < 4 ? num(m.vEnd, 2) : '', m.stupeni.join('|')].join(';');
+    if (kl !== S_.klyuch) {
+      S_.klyuch = kl;
+      setUi(function (u) { return Object.assign({}, u, { klyuch: kl }); });
+    }
+  }
+  if (pokaz.N == null) Object.assign(pokaz, svodka(S_.m), { running: S_.run, graph: S_.graf });
+
+  function step(dt) {
+    if (!S_.run || S_.m.done) return;
+    prodvinut(S_.m, dt / S_.mat.Z);
+    snyat();
+  }
+
+  /* ── примитивы ── */
+
+  function punktir(ctx, x0, y0, x1, y1, color, w) {
+    ctx.save(); ctx.setLineDash([5, 5]); ctx.strokeStyle = color; ctx.lineWidth = w || 1.4;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); ctx.restore();
+  }
+  function strelka(ctx, xa, xb, y, color) {
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 3; ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.moveTo(xa, y); ctx.lineTo(xb - 10, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(xb, y); ctx.lineTo(xb - 13, y - 7); ctx.lineTo(xb - 13, y + 7); ctx.closePath(); ctx.fill();
+  }
+  function pruzhina(ctx, xa, xb, y, color) {
+    var len = xb - xa;
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(xa, y);
+    if (len > 16) {
+      var lead = 4, seg = Math.max(4, Math.min(12, Math.floor((len - 2 * lead) / 5))), amp = 7;
+      ctx.lineTo(xa + lead, y);
+      for (var i = 1; i < seg; i++) ctx.lineTo(xa + lead + (len - 2 * lead) * i / seg, y + (i % 2 ? -amp : amp));
+      ctx.lineTo(xb - lead, y);
+    }
+    ctx.lineTo(xb, y); ctx.stroke();
+  }
+
+  /* ── стержень ── */
+
+  function sterzhen(ctx, m, ink, mut, acc) {
+    var N = m.N, apx = m.a * PXM, KU = KU_PX / m.delta, eps0 = F / (m.mat.E * S), u0 = m.u0, i;
+    function cx(i) { return X0 + (i + 0.5) * apx + KU * m.x[i]; }
+    var xl, xr;
+    if (N <= 40) {
+      var bw = Math.min(30, 0.55 * apx);
+      for (i = 0; i < N - 1; i++) {
+        var s = clamp(-(m.x[i + 1] - m.x[i]) / m.a / eps0, 0, 1);
+        var col = s > 0.05 ? 'rgba(' + CS + ',' + (0.35 + 0.65 * s) + ')' : 'rgba(' + mut + ',.8)';
+        pruzhina(ctx, cx(i) + bw / 2, cx(i + 1) - bw / 2, RY, col);
+      }
+      for (i = 0; i < N; i++) {
+        var r = m.v[i] / u0, x = cx(i) - bw / 2;
+        ctx.fillStyle = 'rgba(' + ink + ',.10)';
+        C.roundRect(ctx, x, RY - BH / 2, bw, BH, 3); ctx.fill();
+        if (r > 0.02) {
+          ctx.fillStyle = 'rgba(' + CV + ',' + clamp(r, 0, 1) * (0.45 + 0.11 * Math.min(r, 5)) + ')';
+          C.roundRect(ctx, x, RY - BH / 2, bw, BH, 3); ctx.fill();
+        }
+        ctx.strokeStyle = r > 0.5 ? 'rgb(' + CV + ')' : 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.5;
+        C.roundRect(ctx, x, RY - BH / 2, bw, BH, 3); ctx.stroke();
+      }
+      xl = cx(0) - bw / 2; xr = cx(N - 1) + bw / 2;
+    } else {
+      xl = X0 + KU * m.x[0]; xr = X1 + KU * m.x[N - 1];
+      ctx.fillStyle = 'rgba(' + ink + ',.10)';
+      ctx.fillRect(xl, RY - BH / 2, xr - xl, BH);
+      for (i = 0; i < N - 1; i++) {
+        var sz = clamp(-(m.x[i + 1] - m.x[i]) / m.a / eps0, 0, 1);
+        if (sz > 0.03) {
+          ctx.fillStyle = 'rgba(' + CS + ',' + 0.85 * sz + ')';
+          ctx.fillRect(cx(i), RY - BH / 2, cx(i + 1) - cx(i) + 0.5, BH);
+        }
+      }
+      ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(xl, RY - BH / 2, xr - xl, BH);
+      /* метки через десятую длины: куда уехала точка вещества */
+      for (var q = 1; q < 10; q++) {
+        var iq = clamp(Math.round(q * N / 10 - 0.5), 0, N - 1), xq = cx(iq);
+        ctx.strokeStyle = m.v[iq] > 0.02 * u0 ? 'rgb(' + CV + ')' : 'rgba(' + ink + ',.7)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(xq, RY - BH / 2); ctx.lineTo(xq, RY + BH / 2); ctx.stroke();
+      }
+    }
+    /* сила на торце */
+    strelka(ctx, xl - 62, xl - 4, RY, 'rgb(' + acc + ')');
+    C.label(ctx, xl - 36, RY - 24, 'F = 1 кН', 17, 'rgb(' + acc + ')');
+    C.label(ctx, xr, RY - 24, 'свободный конец', 17, 'rgba(' + mut + ',.95)', 'right');
+    /* датчики стоят в лаборатории, под грузами N/4 и 3N/4 в покое */
+    [[m.i1, m.t1, 'датчик 1'], [m.i2, m.t2, 'датчик 2']].forEach(function (d) {
+      var xd = X0 + (d[0] + 0.5) * apx, y = RY + BH / 2 + 8;
+      ctx.beginPath(); ctx.moveTo(xd, y); ctx.lineTo(xd - 7, y + 12); ctx.lineTo(xd + 7, y + 12); ctx.closePath();
+      if (d[1] != null) { ctx.fillStyle = 'rgb(' + CV + ')'; ctx.fill(); }
+      else { ctx.strokeStyle = 'rgba(' + ink + ',.7)'; ctx.lineWidth = 1.5; ctx.stroke(); }
+      C.label(ctx, xd, y + 32, d[2], 17, d[1] != null ? 'rgb(' + CV + ')' : 'rgba(' + mut + ',.95)');
+    });
+  }
+
+  /* ── скорости вдоль стержня ── */
+
+  function profil(ctx, m, ink, mut) {
+    var N = m.N, u0 = m.u0, apx = m.a * PXM, i;
+    /* верх шкалы растёт с числом проходов фронта: к моменту t точка
+       получила не больше floor(ct/L) + 1 ступеней; на первом пробеге
+       ступень занимает половину высоты */
+    var GV = clamp(Math.floor(m.t / m.T + 1e-9) + 2, 2, 7);
+    function Y(r) { return GY1 - clamp(r, -0.3, GV + 0.15) / GV * (GY1 - GY0); }
+    var mutS = 'rgba(' + mut + ',.95)';
+    ctx.lineWidth = 1;
+    for (i = 1; i < GV; i++) {
+      ctx.strokeStyle = 'rgba(' + ink + ',' + (i % 2 ? .14 : .07) + ')';
+      ctx.beginPath(); ctx.moveTo(X0, Y(i)); ctx.lineTo(X1, Y(i)); ctx.stroke();
+      if (i % 2) C.label(ctx, X0 - 8, Y(i) + 6, num(i * u0, 2), 17, mutS, 'right');
+    }
+    ctx.strokeStyle = 'rgba(' + mut + ',.7)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(X0, GY1); ctx.lineTo(X1, GY1); ctx.stroke();
+    C.label(ctx, X0 - 8, GY1 + 6, '0', 17, mutS, 'right');
+    /* сплошной стержень: число проходов фронта */
+    ctx.save(); ctx.setLineDash([6, 5]); ctx.strokeStyle = 'rgba(' + ink + ',.6)'; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    for (i = 0; i <= 400; i++) {
+      var xi = Math.min(L * i / 400, L * (1 - 1e-9)), yy = Y(prohody(m, xi, m.t));
+      if (i) ctx.lineTo(X0 + xi * PXM, yy); else ctx.moveTo(X0 + xi * PXM, yy);
+    }
+    ctx.stroke(); ctx.restore();
+    /* цепочка: кусок длиной a на груз */
+    ctx.strokeStyle = 'rgb(' + CV + ')'; ctx.lineWidth = 2.6; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (i = 0; i < N; i++) {
+      var y = Y(m.v[i] / u0);
+      if (i) ctx.lineTo(X0 + i * apx, y); else ctx.moveTo(X0, y);
+      ctx.lineTo(X0 + (i + 1) * apx, y);
+    }
+    ctx.stroke();
+    /* легенда справа */
+    var lx = X1 + 22;
+    C.label(ctx, lx, GY0 + 8, 'скорость, м/с', 17, mutS, 'left');
+    ctx.strokeStyle = 'rgb(' + CV + ')'; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(lx, GY0 + 36); ctx.lineTo(lx + 26, GY0 + 36); ctx.stroke();
+    C.label(ctx, lx + 34, GY0 + 42, 'цепочка', 17, 'rgb(' + CV + ')', 'left');
+    punktir(ctx, lx, GY0 + 66, lx + 26, GY0 + 66, 'rgba(' + ink + ',.6)', 1.6);
+    C.label(ctx, lx + 34, GY0 + 72, 'сплошной', 17, mutS, 'left');
+    C.label(ctx, lx + 34, GY0 + 94, 'стержень', 17, mutS, 'left');
+  }
+
+  /* ── торец от времени ── */
+
+  function grafik(ctx, m, ink, mut) {
+    var T = m.T, u0 = m.u0, mutS = 'rgba(' + mut + ',.95)', pol = S_.graf === 'x';
+    var ymax = pol ? 18.5 * m.delta : 6.5 * u0;
+    function X(t) { return PX0 + t / (TMAX * T) * (PX1 - PX0); }
+    function Y(y) { return PY1 - clamp(y / ymax, -0.05, 1.05) * (PY1 - PY0); }
+    C.label(ctx, 30, RY1 + 2, pol ? 'положение торца, мм' : 'скорость торца, м/с', 17, mutS, 'left');
+    /* легенда */
+    var lg = PX1;
+    C.label(ctx, lg, RY1 + 2, 'твёрдое тело', 17, mutS, 'right');
+    lg -= ctx.measureText('твёрдое тело').width + 8;
+    ctx.strokeStyle = 'rgba(' + ink + ',.6)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(lg - 26, RY1 - 4); ctx.lineTo(lg, RY1 - 4); ctx.stroke();
+    lg -= 40;
+    C.label(ctx, lg, RY1 + 2, 'цепочка', 17, 'rgb(' + CV + ')', 'right');
+    lg -= ctx.measureText('цепочка').width + 8;
+    ctx.strokeStyle = 'rgb(' + CV + ')'; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(lg - 26, RY1 - 4); ctx.lineTo(lg, RY1 - 4); ctx.stroke();
+    /* сетка и оси */
+    var tiki = pol ? [9 * m.delta, 18 * m.delta] : [u0, 3 * u0, 5 * u0];
+    ctx.lineWidth = 1;
+    tiki.forEach(function (y) {
+      ctx.strokeStyle = 'rgba(' + ink + ',.12)';
+      ctx.beginPath(); ctx.moveTo(PX0, Y(y)); ctx.lineTo(PX1, Y(y)); ctx.stroke();
+      C.label(ctx, PX0 - 8, Y(y) + 6, pol ? num(y * 1e3, y * 1e3 < 1 ? 2 : 1) : num(y, 2), 17, mutS, 'right');
+    });
+    ctx.strokeStyle = 'rgba(' + mut + ',.7)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(PX0, PY0); ctx.lineTo(PX0, PY1); ctx.lineTo(PX1, PY1); ctx.stroke();
+    C.label(ctx, PX0 - 8, PY1 + 6, '0', 17, mutS, 'right');
+    [2, 4, 6].forEach(function (k) {
+      var xx = X(k * T);
+      ctx.strokeStyle = 'rgba(' + mut + ',.7)'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(xx, PY1); ctx.lineTo(xx, PY1 + 6); ctx.stroke();
+      C.label(ctx, xx, PY1 + 26, num(k * T * 1e3, 2) + (k === 6 ? ' мс' : ''), 17, mutS, k === 6 ? 'right' : 'center');
+      if (k < 6) {
+        punktir(ctx, xx, PY0, xx, PY1, 'rgba(' + mut + ',.5)', 1.2);
+        C.label(ctx, xx + 5, PY0 + 14, 'эхо', 17, mutS, 'left');
+      }
+    });
+    /* твёрдое тело */
+    ctx.strokeStyle = 'rgba(' + ink + ',.6)'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (var i = 0; i <= 120; i++) {
+      var t = TMAX * T * i / 120, y = pol ? F * t * t / (2 * m.M) : F * t / m.M;
+      if (i) ctx.lineTo(X(t), Y(y)); else ctx.moveTo(X(t), Y(y));
+    }
+    ctx.stroke();
+    /* цепочка */
+    var sl = m.sled;
+    ctx.strokeStyle = 'rgb(' + CV + ')'; ctx.lineWidth = 2.6; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (i = 0; i < sl.length; i++) {
+      var yy = Y(pol ? sl[i][1] : sl[i][2]);
+      if (i) ctx.lineTo(X(sl[i][0]), yy); else ctx.moveTo(X(sl[i][0]), yy);
+    }
+    ctx.lineTo(X(m.t), Y(pol ? m.x[0] : m.vEnd));
+    ctx.stroke();
+    /* ступени, снятые с движения */
+    if (!pol) {
+      for (var k = 0; k < 3; k++) {
+        var st = m.stupeni[k];
+        if (st == null) continue;
+        C.label(ctx, X((2 * k + 1) * T), Y(st) - 9, num(st, 2), 17, 'rgb(' + CV + ')');
+      }
+    }
+  }
+
+  /* ── показания ── */
+
+  function pokazaniya(ctx, m, ink, mut) {
+    var p = svodka(m), mutS = 'rgba(' + mut + ',.95)', W_ = p.work;
+    function pod(x, y, t) { C.label(ctx, x, y, t, 17, mutS, 'right'); }
+    C.readout(ctx, RXL, RY1, 'ФРОНТ, км/с', p.cMeasured != null ? num(p.cMeasured / 1000, 2) : '—', 'rgb(' + CV + ')');
+    pod(RXL, RY1 + 62, '√(E/ρ) = ' + num(m.c / 1000, 2));
+    C.readout(ctx, RXR, RY1, 'ТОРЕЦ, м/с', num(p.uEnd, 3), 'rgb(' + CV + ')');
+    pod(RXR, RY1 + 62, 'F/(ρcS) = ' + num(m.u0, 3));
+    var kw = W_ > 0 ? Math.round(100 * p.kinetic / W_) : null, uw = W_ > 0 ? Math.round(100 * p.elastic / W_) : null;
+    C.readout(ctx, RXL, RY2, 'ДВИЖЕНИЕ/СЖАТИЕ', kw != null ? kw + '/' + uw : '—', 'rgb(' + ink + ')');
+    pod(RXL, RY2 + 62, '% работы силы');
+    C.readout(ctx, RXR, RY2, 'ВРЕМЯ, мс', num(m.t * 1e3, 3), 'rgb(' + ink + ')');
+    pod(RXR, RY2 + 62, 'эхо через ' + num(2 * m.T * 1e3, 2));
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted, acc = tone.accent;
+    var m = S_.m, mutS = 'rgba(' + mut + ',.95)';
+    C.label(ctx, 30, 24, 't = ' + num(m.t * 1e3, 3) + ' мс', 17, 'rgb(' + ink + ')', 'left');
+    C.label(ctx, W - 10, 24, 'время замедлено в ' + m.mat.Zt + ' раз, смещения увеличены в ' +
+            dvaZnaka(KU_PX / m.delta / PXM) + ' раз', 17, mutS, 'right');
+    sterzhen(ctx, m, ink, mut, acc);
+    profil(ctx, m, ink, mut);
+    grafik(ctx, m, ink, mut);
+    pokazaniya(ctx, m, ink, mut);
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+
+  function zagruzit(mat, iN, run) {
+    S_.mat = mat; S_.iN = iN; S_.run = run;
+    S_.m = novyj(mat, CHISLA[iN]);
+    S_.klyuch = '';
+    snyat();
+    setUi(function (u) { return Object.assign({}, u, { id: mat.id, iN: iN, run: run, klyuch: S_.klyuch }); });
+  }
+  function vybrat(id) { zagruzit(PO_ID[id], S_.iN, true); }
+  function chislo(v) {
+    var i = clamp(Math.round(v), 0, CHISLA.length - 1);
+    if (i !== S_.iN) zagruzit(S_.mat, i, true);
+  }
+  function pusk() {
+    if (S_.m.done) { zagruzit(S_.mat, S_.iN, true); return; }
+    S_.run = !S_.run; snyat();
+    setUi(function (u) { return Object.assign({}, u, { run: S_.run }); });
+  }
+  function sbros() { zagruzit(S_.mat, S_.iN, true); }
+  function graf(g) {
+    S_.graf = g; pokaz.graph = g;
+    setUi(function (u) { return Object.assign({}, u, { graf: g }); });
+  }
+
+  /* Для автопроверки: __demoSet({ material, N, run, graph }) ставит опыт
+     с этими ручками (N из списка CHISLA); __demoAction('pusk' | 'sbros')
+     жмёт кнопку; __demoCheck(material, N, tOver)
+     — прогон без кадров до tOver·L/c, живую сцену не трогает;
+     __demoModel — куски счёта для отрицательного контроля. */
+  window.__demoSet = function (q) {
+    q = q || {};
+    var mat = q.material ? PO_ID[q.material] : S_.mat;
+    var iN = q.N != null ? CHISLA.indexOf(q.N) : S_.iN;
+    if (iN < 0) throw new Error('N не из списка: ' + q.N);
+    if (q.graph) graf(q.graph);
+    zagruzit(mat, iN, q.run == null ? true : !!q.run);
+    return pokaz;
+  };
+  window.__demoAction = function (name) {
+    ({ pusk: pusk, sbros: sbros })[name]();
+    return pokaz;
+  };
+  window.__demoCheck = progon;
+  window.__demoModel = { MATERIALY: MATERIALY, CHISLA: CHISLA, novyj: novyj, shag: shag, prodvinut: prodvinut,
+                         progonModel: progonModel, svodka: svodka, prohody: prohody, xStergnya: xStergnya };
+
+  /* ── строка показаний ── */
+
+  function slova() {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var m = S_.m, p = svodka(m), N = m.N, ms = function (t) { return num(t * 1e3, 2) + ' мс'; };
+    var u = function (x) { return num(x, 3) + ' м/с'; }, f = faza(m), txt;
+    var st = m.stupeni;
+    if (N <= 6 && f < 4) {
+      txt = 'Грузов всего ' + N + ', и это ещё не стержень: ступени фронта нет, каждый груз раскачивается по-своему, ' +
+        'а скорость торца' + (m.t > OKNO * m.T ? ', сейчас ' + A(num(p.uEnd, 2) + ' м/с') + ',' : '') + ' прыгает около средней. ' +
+        'Центр масс и здесь идёт с ускорением F/M = ' + num(F / m.M, 0) + ' м/с², как твёрдое тело: импульс грузов равен Ft. ' +
+        'Чем больше грузов, тем ближе цепочка к сплошному стержню; при нескольких десятках по ней уже бежит фронт.';
+      if (p.cMeasured != null) txt += ' Датчики дают ' + A(num(p.cMeasured / 1000, 2) + ' км/с') + ' при √(E/ρ) = ' + num(m.c / 1000, 2) + ' км/с.';
+      return txt;
+    }
+    if (f === 0) {
+      txt = 'Сила 1 кН давит на левый торец ' + m.mat.rod + ' стержня 1 м сечением 1 см². Стержень собран из ' + N +
+        ' грузов массой ρSa на пружинках жёсткостью ES/a. Груз трогается, только когда сжалась пружинка перед ним, ' +
+        'поэтому сжатие бежит по стержню фронтом: впереди грузы стоят, позади едут с одной скоростью. ' +
+        'Торец едет не равноускоренно, а с постоянной скоростью' + (m.t > OKNO * m.T ? ' ' + A(u(p.uEnd)) : '') +
+        ', пока о силе не узнал дальний конец. ';
+      if (p.work > 0 && m.t > OKNO * m.T) txt += 'Работа силы делится почти поровну: ' + Math.round(100 * p.kinetic / p.work) + ' % ушло в движение, ' +
+        Math.round(100 * p.elastic / p.work) + ' % в сжатие пружинок.';
+    } else if (f === 1) {
+      txt = 'Фронт дошёл до свободного конца. Держать конец нечему, он поехал вдвое быстрее, и назад пошла разгрузка: ' +
+        'за ней пружинки уже не сжаты, а грузы едут с удвоенной скоростью. Левый торец об этом ещё не знает и едет по-прежнему, ' +
+        A(u(p.uEnd)) + '.';
+    } else if (f === 2) {
+      txt = 'Через ' + A(ms(2 * m.T)) + ' разгрузка вернулась к левому торцу. Сила давит по-прежнему, и от торца пошёл новый фронт сжатия: ' +
+        'скорость торца скачком выросла втрое, до ' + A((st[1] != null ? num(st[1], 3) : num(p.uEnd, 2)) + ' м/с') + '. ' +
+        'Центр масс тем временем идёт с ускорением F/M = ' + num(F / m.M, 0) + ' м/с², как твёрдое тело: импульс грузов равен Ft, что бы ни делала волна.';
+    } else if (f === 3) {
+      txt = 'Второе эхо: скорость торца впятеро больше первой, ' + A((st[2] != null ? num(st[2], 3) : num(p.uEnd, 2)) + ' м/с') + '. ' +
+        'Ступени 1, 3, 5 в среднем дают то же ускорение F/M, что у твёрдого тела. Если сила давит много дольше ' + ms(2 * m.T) +
+        ', ступени сливаются в параболу, и стержень можно считать твёрдым.';
+    } else {
+      txt = 'Опыт остановлен после трёх пробегов туда и обратно, через ' + ms(TMAX * m.T) + '. Ступени скорости торца, снятые с движения: ' +
+        st.map(function (x) { return x != null ? num(x, 3) : '—'; }).join(', ') + ' м/с. Кнопка «Пуск» начинает опыт заново.';
+    }
+    if (p.cMeasured != null && f < 4) {
+      txt += ' Скорость фронта по двум датчикам ' + A(num(p.cMeasured / 1000, 2) + ' км/с') + ' при √(E/ρ) = ' + num(m.c / 1000, 2) + ' км/с.';
+      if (N <= 60)
+        txt += ' Ступень фронта расплывается на несколько грузов: короткие волны цепочка пропускает медленнее длинных. ' +
+          'С ростом числа грузов ступень становится резче, а её скорость ближе к √(E/ρ).';
+      else
+        txt += ' Грузов так много, что цепочка почти не отличается от сплошного стержня; рябь за фронтом осталась от того, что грузы всё же отдельные.';
+    }
+    return txt;
+  }
+
+  var N = CHISLA[ui.iN];
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Стержень:">
+          ${MATERIALY.map(function (q) {
+            return html`<${C.Btn} key=${q.id} active=${ui.id === q.id} onClick=${function () { vybrat(q.id); }}>${q.knopka}<//>`; })}
+        <//>
+        <${C.Slider} label="Грузов:" min=${0} max=${CHISLA.length - 1} step=${1} value=${ui.iN}
+                     onChange=${chislo} display=${String(N)} />
+        <${C.Group} label="График торца:">
+          <${C.Btn} active=${ui.graf === 'v'} onClick=${function () { graf('v'); }}>скорость<//>
+          <${C.Btn} active=${ui.graf === 'x'} onClick=${function () { graf('x'); }}>положение<//>
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${pusk}>${ui.run && !S_.m.done ? 'Пауза' : 'Пуск'}<//>
+          <${C.Btn} onClick=${sbros}>Сброс<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Cepochka);
+</script>
+</body>
+</html>

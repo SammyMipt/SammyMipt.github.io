@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Газ с притяжением</title>
+<link rel="stylesheet" href="../shared/demo.css">
+<style>
+/* Местные правила, как у «изотермы Ван-дер-Ваальса»: demo.css общий.
+   Строка показаний держит высоту самой длинной своей фразы: фраз четыре,
+   и при смене фразы холст под строкой не прыгает. Под видимым текстом
+   лежит невидимая самая длинная фраза жирным, то есть с запасом. */
+.status.gsp-status { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.gsp-status > span, .gsp-status::before { grid-area: 1 / 1; }
+.gsp-status::before { content: attr(data-ten); visibility: hidden; font-weight: 600; }
+/* Значению ползунка хватает девяти знаков («kT = 0,40»), ширина постоянная. */
+.control-value { min-width: 9ch; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-11/">&larr; Неделя 11</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=gaz-s-prityazheniem"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Три демки к лекции 12.11 (бриф briefs/proizvodstvo11_tri_demki.md,
+   раздел «Демка В: «Газ с притяжением»»). Место: кадр 4 колоды
+   (кикер «МОСТ · ПРИТЯЖЕНИЕ», рисунок ямы) и в главе блок
+   mezhmolekulyarnoe-vzaimodejstvie после ris-potencial-vzaimodejstviya.
+   Слово «фаза» к этому месту не введено, на экране его нет.
+
+   МОДЕЛЬ. Двумерная молекулярная динамика: 400 одинаковых молекул в
+   ящике 60σ × 34σ, средняя плотность 0,196 на σ². Единицы: σ (где
+   энергия пары проходит через нуль), глубина ямы ε = |E₀|, масса
+   молекулы m, k = 1; время τ = σ√(m/ε). Температура везде есть kT/ε,
+   то есть kT в глубинах ямы.
+
+   ЭНЕРГИЯ ПАРЫ. Леннард-Джонс, как на рисунке главы
+   ris-potencial-vzaimodejstviya: U = 4ε[(σ/r)¹² − (σ/r)⁶], то же, что
+   U/|E₀| = (r_min/r)¹² − 2(r_min/r)⁶ при r_min = 2^(1/6)σ. До r = 2σ
+   (1,78 r_min, там от глубины остаётся 6 %) формула точная, дно ямы −ε
+   при r_min. От 2σ до 2,5σ хвост плавно сводится к нулю множителем
+   S = (1 − x)²(1 + 2x), x = (r − 2σ)/0,5σ: энергия и сила непрерывны, и
+   энергия без термостата сохраняется. За 2,5σ взаимодействия нет.
+   «Притяжение: нет» оставляет одно отталкивание: та же стенка до r_min,
+   поднятая на ε, U = 4ε[(σ/r)¹² − (σ/r)⁶] + ε, дальше нуль (так
+   называемый потенциал WCA); ямы нет, сила там только расталкивает.
+   Сила F = −dU/dr выписана по формуле; проверка сверяет её с численной
+   производной энергии, пары и всего ящика (__demoModel.proverkaSil).
+
+   СТЕНКИ И ТЯЖЕСТЬ. Стенки ящика отталкивают молекулу той же формулой
+   WCA с σ/2 вместо σ: центр молекулы подходит к стенке примерно на σ/2,
+   нарисованная молекула стенки касается. Стенки только отталкивают, в
+   том числе при включённом притяжении. Сила тяжести mg = 0,008 ε/σ:
+   поднять молекулу на всю высоту ящика стоит 0,27ε, на свой диаметр
+   0,008ε. Она собирает капли на дно в лужу за десяток секунд показа и
+   почти не трогает газ: без притяжения при kT = 0,40 плотность у дна
+   больше, чем у крышки, в e^(0,27/0,40) ≈ 2,0 раза, и газ остаётся газом
+   (проверка ниже). Энергия mgy входит в полную энергию.
+
+   ШАГ. Верле в скоростной форме, шаг 0,005τ; пары ищутся по клеткам со
+   стороной не меньше 2,5σ (24 × 13 клеток, каждая пара один раз). За
+   кадр 50 шагов: при 60 кадрах в секунду модель идёт 15τ в секунду.
+   Термостат Берендсена: после шага скорости умножаются на
+   λ = √(1 + (h/τ_T)(kT₀/kT − 1)), τ_T = 1τ, kT = Σv²/2N (две степени
+   свободы на молекулу). Термостат держит заданную температуру; теплоту,
+   которую отдают слипающиеся молекулы, он уносит.
+
+   СТАРТ. Решётка 27 × 15, встряхнутая на ±15 % шага, скорости по Гауссу
+   из генератора mulberry32 с зерном ZERNO, импульс снят, kT = 1 ровно;
+   до первого кадра 600 шагов при kT = 1, чтобы решётка разошлась. Одно
+   зерно даёт один и тот же ход: __demoTick повторяем, «Заново» начинает
+   тот же показ.
+
+   СОСЕДИ И КАПЛИ. Соседи: центры ближе 1,5σ (1,34 r_min, за первым
+   слоем соседей жидкости). Капля: связная по соседям группа из 20 и
+   больше молекул. Цвет: молекула без соседей, с соседями вне капли, в
+   капле. «В КАПЛЯХ» есть доля молекул в каплях, сглаженная по 0,5 с;
+   kT на табло считается по скоростям и сглажена так же.
+
+   ЧИСЛА (hcheck, порт 49975, briefs/lekciya11_skripty/proizvodstvo/
+   gaz_s_prityazheniem_check.js; python gaz_s_prityazheniem.py там же;
+   отчёт briefs/proizvodstvo11_demka-gaz-s-prityazheniem_REPORT.md).
+   Доля в каплях после 60τ при постоянной kT, среднее за следующие 75τ:
+   с притяжением 0,918 при kT = 0,40, 0,904 при 0,42, 0,787 при 0,45,
+   0,701 при 0,5, 0,195 при 0,7, 0,042 при 1, 0,002 при 2 и при 4; без
+   притяжения 0 при 0,40, 0,42, 1 и 4. Python на своей динамике (100
+   молекул, 30σ × 17σ, 150τ на установление) при kT = 0,42: 0,88–0,97 с
+   притяжением, 0 без. Энергия без термостата за 500τ уходит на 2,6·10⁻⁵
+   (kT = 0,45), 2,6·10⁻⁴ (kT = 2) и 4,8·10⁻⁴ (kT = 0,45 без притяжения)
+   глубины ямы на молекулу. Сила пары против численной производной до
+   2,5·10⁻¹⁰, сила ящика до 1,1·10⁻⁷; python перебором всех пар
+   повторяет энергию ящика до 1,6·10⁻¹⁵ и силы до 4·10⁻¹⁴.
+   На плоскости у молекулы в жидкости около шести соседей, в объёме
+   около десятка, и плоская жидкость держится до kT около половины
+   глубины ямы, а не около целой; при kT = 4 капель нет. */
+
+var LX = 60, LY = 34, N_MOL = 400;            /* ящик в σ, число молекул */
+var RMIN = Math.pow(2, 1 / 6);                /* дно ямы, в σ */
+var RON = 2.0, RC = 2.5;                      /* начало сглаживания хвоста и обрезка */
+var RB = 1.5;                                 /* соседи: центры ближе 1,5σ */
+var SW = 0.5, SW_C = SW * RMIN;               /* стенка: WCA с σ/2 */
+var HSTEP = 0.005, GRAV = 0.008, TAU_T = 1.0; /* шаг, mg в ε/σ, время термостата */
+var N_KAPLYA = 20;                            /* капля: связная группа от 20 молекул */
+var SHAGOV_ZA_KADR = 50;                      /* шагов на 1/60 с */
+var T_MIN = 0.40, T_MAX = 4.0, T_START = 1.0, SKOROST = 0.08; /* kT в глубинах ямы; ln kT в секунду */
+var ZERNO = 1211, PROGREV = 600;
+var RC2 = RC * RC, RON2 = RON * RON, RB2 = RB * RB, RMIN2 = RMIN * RMIN, DRS = RC - RON;
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/* Энергия пары и сила F = −dU/dr по отдельности, для проверок и графика
+   ямы; в цикле сил то же самое написано по месту, без вызовов. */
+function paraU(r, prit) {
+  var r2 = r * r, s6 = 1 / (r2 * r2 * r2), u = 4 * (s6 * s6 - s6);
+  if (!prit) return r < RMIN ? u + 1 : 0;
+  if (r >= RC) return 0;
+  if (r <= RON) return u;
+  var x = (r - RON) / DRS;
+  return u * (1 - x) * (1 - x) * (1 + 2 * x);
+}
+function paraF(r, prit) {
+  var r2 = r * r, s6 = 1 / (r2 * r2 * r2), u = 4 * (s6 * s6 - s6), f = (48 * s6 * s6 - 24 * s6) / r;
+  if (!prit) return r < RMIN ? f : 0;
+  if (r >= RC) return 0;
+  if (r <= RON) return f;
+  var x = (r - RON) / DRS, S = (1 - x) * (1 - x) * (1 + 2 * x), dS = -6 * x * (1 - x) / DRS;
+  return f * S - u * dS;
+}
+/* Стенка: d есть расстояние центра молекулы до стенки. */
+function stenaU(d) {
+  if (d >= SW_C) return 0;
+  var q = SW / d, q6 = q * q * q * q * q * q;
+  return 4 * (q6 * q6 - q6) + 1;
+}
+function stenaF(d) {
+  if (d >= SW_C) return 0;
+  var q = SW / d, q6 = q * q * q * q * q * q;
+  return (48 * q6 * q6 - 24 * q6) / d;
+}
+
+function sozdat(o) {
+  var N = o.N || N_MOL, rnd = mulberry32(o.seed >>> 0), i;
+  var s = { N: N, x: new Float64Array(N), y: new Float64Array(N), vx: new Float64Array(N), vy: new Float64Array(N),
+            fx: new Float64Array(N), fy: new Float64Array(N), prit: o.prit !== false, T0: o.T, termo: o.termo !== false,
+            grav: o.grav != null ? o.grav : GRAV, ncx: Math.floor(LX / RC), ncy: Math.floor(LY / RC),
+            U: 0, t: 0, nsh: 0, seed: o.seed >>> 0 };
+  s.cw = LX / s.ncx; s.ch = LY / s.ncy;
+  s.head = new Int32Array(s.ncx * s.ncy); s.next = new Int32Array(N);
+  s.nb = new Int32Array(N); s.par = new Int32Array(N); s.kl = new Uint8Array(N); s.razm = new Int32Array(N);
+  var nx = Math.ceil(Math.sqrt(N * LX / LY)), ny = Math.ceil(N / nx), dx = LX / nx, dy = LY / ny;
+  for (i = 0; i < N; i++) {
+    var a = i % nx, b = Math.floor(i / nx);
+    s.x[i] = (a + 0.5 + 0.3 * (rnd() - 0.5)) * dx; s.y[i] = (b + 0.5 + 0.3 * (rnd() - 0.5)) * dy;
+    var u1 = Math.max(rnd(), 1e-12), u2 = rnd(), rr = Math.sqrt(-2 * Math.log(u1));
+    s.vx[i] = rr * Math.cos(2 * Math.PI * u2); s.vy[i] = rr * Math.sin(2 * Math.PI * u2);
+  }
+  var mx = 0, my = 0;
+  for (i = 0; i < N; i++) { mx += s.vx[i]; my += s.vy[i]; }
+  mx /= N; my /= N;
+  for (i = 0; i < N; i++) { s.vx[i] -= mx; s.vy[i] -= my; }
+  var k = Math.sqrt(o.T / kinT(s));
+  for (i = 0; i < N; i++) { s.vx[i] *= k; s.vy[i] *= k; }
+  sily(s);
+  return s;
+}
+
+/* kT по скоростям: на плоскости две степени свободы, m = 1. */
+function kinT(s) {
+  var k = 0;
+  for (var i = 0; i < s.N; i++) k += s.vx[i] * s.vx[i] + s.vy[i] * s.vy[i];
+  return k / (2 * s.N);
+}
+function energiya(s) { return kinT(s) * s.N + s.U; }
+
+function kletki(s) {
+  var N = s.N, i, ncx = s.ncx, ncy = s.ncy;
+  s.head.fill(-1);
+  for (i = 0; i < N; i++) {
+    var cx = Math.floor(s.x[i] / s.cw), cy = Math.floor(s.y[i] / s.ch);
+    if (cx < 0) cx = 0; else if (cx >= ncx) cx = ncx - 1;
+    if (cy < 0) cy = 0; else if (cy >= ncy) cy = ncy - 1;
+    var c = cy * ncx + cx;
+    s.next[i] = s.head[c]; s.head[c] = i;
+  }
+}
+
+/* Своя клетка и половина соседних: каждая пара считается один раз. */
+var SDX = [0, 1, -1, 0, 1], SDY = [0, 0, 1, 1, 1];
+function sily(s) {
+  var N = s.N, x = s.x, y = s.y, fx = s.fx, fy = s.fy, prit = s.prit, i, j, k, U = 0;
+  var ncx = s.ncx, ncy = s.ncy, head = s.head, next = s.next;
+  kletki(s);
+  fx.fill(0); fy.fill(0);
+  var rc2 = prit ? RC2 : RMIN2;
+  for (var cy = 0; cy < ncy; cy++) for (var cx = 0; cx < ncx; cx++) {
+    for (i = head[cy * ncx + cx]; i >= 0; i = next[i]) {
+      var xi = x[i], yi = y[i], fxi = 0, fyi = 0;
+      for (k = 0; k < 5; k++) {
+        var ax = cx + SDX[k], ay = cy + SDY[k];
+        if (ax < 0 || ax >= ncx || ay >= ncy) continue;
+        for (j = k === 0 ? next[i] : head[ay * ncx + ax]; j >= 0; j = next[j]) {
+          var dx = xi - x[j], dy = yi - y[j], r2 = dx * dx + dy * dy;
+          if (r2 >= rc2) continue;
+          var s6 = 1 / (r2 * r2 * r2), u = 4 * (s6 * s6 - s6), fr = (48 * s6 * s6 - 24 * s6) / r2;
+          if (!prit) u += 1;
+          else if (r2 > RON2) {
+            var r = Math.sqrt(r2), q = (r - RON) / DRS, S = (1 - q) * (1 - q) * (1 + 2 * q), dS = -6 * q * (1 - q) / DRS;
+            fr = fr * S - u * dS / r; u *= S;
+          }
+          U += u;
+          fxi += fr * dx; fyi += fr * dy; fx[j] -= fr * dx; fy[j] -= fr * dy;
+        }
+      }
+      fx[i] += fxi; fy[i] += fyi;
+    }
+  }
+  for (i = 0; i < N; i++) {
+    var xw = x[i], yw = y[i];
+    if (xw < SW_C) { U += stenaU(xw); fx[i] += stenaF(xw); }
+    if (LX - xw < SW_C) { U += stenaU(LX - xw); fx[i] -= stenaF(LX - xw); }
+    if (yw < SW_C) { U += stenaU(yw); fy[i] += stenaF(yw); }
+    if (LY - yw < SW_C) { U += stenaU(LY - yw); fy[i] -= stenaF(LY - yw); }
+    U += s.grav * yw; fy[i] -= s.grav;
+  }
+  s.U = U;
+}
+
+/* Шаг Верле в скоростной форме, затем термостат. */
+function shag(s) {
+  var N = s.N, h = HSTEP, x = s.x, y = s.y, vx = s.vx, vy = s.vy, fx = s.fx, fy = s.fy, i;
+  for (i = 0; i < N; i++) {
+    vx[i] += 0.5 * h * fx[i]; vy[i] += 0.5 * h * fy[i];
+    x[i] += h * vx[i]; y[i] += h * vy[i];
+  }
+  sily(s);
+  for (i = 0; i < N; i++) { vx[i] += 0.5 * h * fx[i]; vy[i] += 0.5 * h * fy[i]; }
+  if (s.termo) {
+    var T = kinT(s), lam = Math.sqrt(Math.max(0.5, Math.min(2, 1 + h / TAU_T * (s.T0 / T - 1))));
+    for (i = 0; i < N; i++) { vx[i] *= lam; vy[i] *= lam; }
+  }
+  s.t += h; s.nsh++;
+}
+
+/* Соседи и капли: связи между центрами ближе RB, капли собираются
+   объединением множеств по связям. kl: 0 без соседей, 1 с соседями вне
+   капли, 2 в капле. */
+function koren(p, i) { while (p[i] !== i) { p[i] = p[p[i]]; i = p[i]; } return i; }
+function kapli(s) {
+  var N = s.N, x = s.x, y = s.y, nb = s.nb, par = s.par, razm = s.razm, i, j, k;
+  var ncx = s.ncx, ncy = s.ncy, head = s.head, next = s.next;
+  kletki(s);
+  nb.fill(0); razm.fill(0);
+  for (i = 0; i < N; i++) par[i] = i;
+  for (var cy = 0; cy < ncy; cy++) for (var cx = 0; cx < ncx; cx++) {
+    for (i = head[cy * ncx + cx]; i >= 0; i = next[i]) {
+      for (k = 0; k < 5; k++) {
+        var ax = cx + SDX[k], ay = cy + SDY[k];
+        if (ax < 0 || ax >= ncx || ay >= ncy) continue;
+        for (j = k === 0 ? next[i] : head[ay * ncx + ax]; j >= 0; j = next[j]) {
+          var dx = x[i] - x[j], dy = y[i] - y[j];
+          if (dx * dx + dy * dy >= RB2) continue;
+          nb[i]++; nb[j]++;
+          var ri = koren(par, i), rj = koren(par, j);
+          if (ri !== rj) par[ri] = rj;
+        }
+      }
+    }
+  }
+  for (i = 0; i < N; i++) razm[koren(par, i)]++;
+  var vk = 0, odin = 0, bol = 0, kb = -1, yb = 0, i2;
+  for (i = 0; i < N; i++) {
+    var kr = koren(par, i), sz = razm[kr];
+    s.kl[i] = nb[i] === 0 ? 0 : sz >= N_KAPLYA ? 2 : 1;
+    if (s.kl[i] === 2) vk++;
+    if (nb[i] === 0) odin++;
+    if (sz > bol) { bol = sz; kb = kr; }
+  }
+  for (i2 = 0; i2 < N; i2++) if (koren(par, i2) === kb) yb += y[i2];
+  return { vKaplyah: vk / N, odinochki: odin / N, bolshaya: bol, yBolshoj: bol ? yb / bol : null };
+}
+
+/* ── проверки: прогон без термостата и сила как производная энергии ── */
+
+/* Новый ящик с зерном: ravn шагов с термостатом при kT, затем shagov
+   шагов без него; энергия на молекулу каждые 50 шагов. Наклон
+   прямой по методу наименьших квадратов даёт дрейф за τ. */
+function progonNVE(o) {
+  var s = sozdat({ seed: o.seed, T: o.T, prit: o.prit !== false, grav: o.grav });
+  var i;
+  for (i = 0; i < (o.ravn || 0); i++) shag(s);
+  s.termo = false;
+  var E0 = energiya(s) / s.N, ts = [], es = [], mx = 0, t0 = performance.now();
+  for (i = 0; i <= o.shagov; i++) {
+    if (i % 50 === 0) { var e = energiya(s) / s.N; ts.push(s.t); es.push(e); mx = Math.max(mx, Math.abs(e - E0)); }
+    if (i < o.shagov) shag(s);
+  }
+  var ms = performance.now() - t0, n = ts.length, st = 0, se = 0, stt = 0, ste = 0;
+  for (i = 0; i < n; i++) { st += ts[i]; se += es[i]; stt += ts[i] * ts[i]; ste += ts[i] * es[i]; }
+  var naklon = (n * ste - st * se) / (n * stt - st * st);
+  return { E0: E0, E1: es[n - 1], drejf: es[n - 1] - E0, maxOtkl: mx, naklonZaTau: naklon,
+           tau: o.shagov * HSTEP, kT: kinT(s), msShag: ms / o.shagov, vKaplyah: kapli(s).vKaplyah };
+}
+
+/* Сила как производная: у m молекул ящика сдвигаем центр на ±δ по x и
+   по y и сравниваем −ΔU/2δ всего ящика с силой из sily. */
+function proverkaSil(s, m, delta, oshibka) {
+  sily(s);
+  var fx0 = Float64Array.from(s.fx), fy0 = Float64Array.from(s.fy), U0 = s.U;
+  var rnd = mulberry32(99), hud = 0, maxF = 0, i, k;
+  for (k = 0; k < m; k++) {
+    i = Math.floor(rnd() * s.N);
+    [['x', fx0], ['y', fy0]].forEach(function (p) {
+      var arr = s[p[0]], x0 = arr[i];
+      arr[i] = x0 + delta; sily(s); var up = s.U;
+      arr[i] = x0 - delta; sily(s); var dn = s.U;
+      arr[i] = x0;
+      var fnum = -(up - dn) / (2 * delta), f = p[1][i] + (oshibka ? oshibka(i, p[0]) : 0);
+      hud = Math.max(hud, Math.abs(fnum - f) / Math.max(1, Math.abs(f)));
+      maxF = Math.max(maxF, Math.abs(f));
+    });
+  }
+  sily(s);
+  return { otnOshibka: hud, maxF: maxF, U: U0, proveril: m };
+}
+
+/* Русская запятая. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+/* ── конец физики ── */
+
+/* ══════════════════ сцена ══════════════════
+   Слева ящик: молекулы кружками диаметра r_min, цветом по соседям. Справа
+   табло, график энергии пары с ямой и стрелкой kT от дна (как на рисунке
+   главы), под ним цвета. Снизу строка показаний. */
+
+var W = 1000, HGT = 460;
+var BX0 = 16, BY0 = 70, PX = 10.6;                 /* ящик: левый верх и пикселей на σ */
+var BX1 = BX0 + LX * PX, BY1 = BY0 + LY * PX;
+var GX0 = 712, GX1 = 985, GY0 = 132, GY1 = 318;    /* график энергии пары */
+var R0 = 0.85, R1 = 2.75, U0 = -1.3, U1 = 1.3;
+var CV = ['120,140,255', '77,190,180', '240,128,62']; /* без соседей, с соседями, в капле */
+var CV_U = '86,160,240';
+
+function gx(r) { return GX0 + (r - R0) * (GX1 - GX0) / (R1 - R0); }
+function gy(u) { return GY1 - (u - U0) * (GY1 - GY0) / (U1 - U0); }
+
+/* Строка показаний: четыре фразы, без чисел (числа на табло). */
+var FRAZY = {
+  net: 'Притяжения нет, осталось одно отталкивание. Молекулы только отскакивают друг от друга, и газ не сжижается ни при какой температуре.',
+  gaz: 'Тепловое движение пересиливает притяжение: молекулы сталкиваются, ненадолго слипаются и снова разлетаются. Капель нет.',
+  kapli: 'Тепловой энергии уже не хватает, чтобы вырваться из ямы сразу у нескольких соседей. Газ собирается в капли, капли падают на дно и сливаются.',
+  luzha: 'Капли слились в жидкость на дне, над ней стоит пар: одни молекулы вылетают из жидкости, другие возвращаются в неё.'
+};
+var TEN = Object.keys(FRAZY).reduce(function (a, k) { return FRAZY[k].length > a.length ? FRAZY[k] : a; }, '');
+
+function GazSPrityazheniem() {
+  /* Состояние живёт в одном объекте на всё время жизни демки: «Заново»
+     переписывает его поля, а не подменяет объект. Иначе ручка из старой
+     отрисовки и кадр из новой смотрели бы на разные ящики. */
+  var B = useRef(null);
+  function nachalo(zerno) {
+    var s = sozdat({ seed: zerno == null ? ZERNO : zerno, T: T_START, prit: true });
+    for (var i = 0; i < PROGREV; i++) shag(s);
+    var q = kapli(s);
+    return { s: s, q: q, hod: 0, nakop: 0, kT: kinT(s), vk: q.vKaplyah, rezhim: 'gaz', ui: 0,
+             msShag: null, msRis: null };
+  }
+  if (!B.current) B.current = nachalo();
+  var b = B.current;
+  var _t = useState(0), tik = _t[1];
+  function obnovit() { tik(function (n) { return n + 1; }); }
+
+  /* Фраза строки: по сглаженной доле в каплях, с запасом, чтобы фраза не
+     мигала на границе; лужа, когда самая большая капля держит 60 %
+     молекул и её центр в нижней трети ящика. */
+  function vybratRezhim() {
+    var s = b.s, q = b.q, r = b.rezhim, vk = b.vk;
+    if (!s.prit) return 'net';
+    if (r === 'net') r = vk > 0.5 ? 'kapli' : 'gaz';
+    if (r === 'gaz' && vk > 0.25) r = 'kapli';
+    if (r !== 'gaz' && vk < 0.15) r = 'gaz';
+    var luzha = q.bolshaya >= 0.6 * s.N && q.yBolshoj < LY / 3;
+    if (r === 'kapli' && luzha) r = 'luzha';
+    if (r === 'luzha' && (q.bolshaya < 0.5 * s.N || q.yBolshoj > LY / 2.5)) r = 'kapli';
+    return r;
+  }
+
+  function sostoyanie() {
+    var s = b.s, q = b.q;
+    return { kT: b.kT, kT_mgn: kinT(s), kT0: s.T0, prit: s.prit, hod: b.hod,
+             vKaplyah: b.vk, vKaplyah_mgn: q.vKaplyah, odinochki: q.odinochki, bolshaya: q.bolshaya,
+             yBolshoj: q.yBolshoj, rezhim: b.rezhim, N: s.N, t: s.t, shagov: s.nsh, E: energiya(s) / s.N,
+             seed: s.seed, msShag: b.msShag, msRis: b.msRis, shagovZaKadr: SHAGOV_ZA_KADR, tauVSek: 60 * SHAGOV_ZA_KADR * HSTEP };
+  }
+
+  function step(dt) {
+    var s = b.s;
+    if (b.hod) {
+      var T = s.T0 * Math.exp(b.hod * SKOROST * dt);
+      if (T <= T_MIN) { T = T_MIN; b.hod = 0; }
+      if (T >= T_MAX) { T = T_MAX; b.hod = 0; }
+      s.T0 = T;
+    }
+    b.nakop += dt * 60 * SHAGOV_ZA_KADR;
+    var n = Math.min(2 * SHAGOV_ZA_KADR, Math.floor(b.nakop + 1e-6));
+    b.nakop = Math.min(b.nakop - n, SHAGOV_ZA_KADR);
+    var t0 = performance.now();
+    for (var i = 0; i < n; i++) shag(s);
+    if (n) {
+      var ms = (performance.now() - t0) / n;
+      b.msShag = b.msShag == null ? ms : 0.95 * b.msShag + 0.05 * ms;
+    }
+    b.q = kapli(s);
+    var a = 1 - Math.exp(-dt / 0.5);
+    b.kT += a * (kinT(s) - b.kT);
+    b.vk += a * (b.q.vKaplyah - b.vk);
+    var r = vybratRezhim();
+    b.ui += dt;
+    if (r !== b.rezhim || b.ui > 0.25) { b.rezhim = r; b.ui = 0; obnovit(); }
+    window.__demoState = sostoyanie();
+  }
+
+  function risYashchik(ctx, tone) {
+    var s = b.s, rr = RMIN / 2 * PX, i, c;
+    for (c = 0; c < 3; c++) {
+      ctx.fillStyle = 'rgb(' + CV[c] + ')';
+      ctx.beginPath();
+      for (i = 0; i < s.N; i++) {
+        if (s.kl[i] !== c) continue;
+        var X = BX0 + s.x[i] * PX, Y = BY1 - s.y[i] * PX;
+        ctx.moveTo(X + rr, Y); ctx.arc(X, Y, rr, 0, 6.2832);
+      }
+      ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.75)'; ctx.lineWidth = 2;
+    ctx.strokeRect(BX0, BY0, BX1 - BX0, BY1 - BY0);
+    var mut = 'rgba(' + tone.muted + ',.95)';
+    C.label(ctx, BX0, BY0 - 14, s.N + ' молекул в ящике', 17, mut, 'left');
+    C.label(ctx, BX1, BY1 + 22, 'слабая сила тяжести тянет вниз ↓', 17, mut, 'right');
+  }
+
+  function risYamu(ctx, tone) {
+    var s = b.s, ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)', prit = s.prit;
+    C.label(ctx, GX0 - 8, GY0 - 18, 'энергия пары молекул', 17, mut, 'left');
+    /* оси: нуль энергии и вертикаль */
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(GX0, GY0); ctx.lineTo(GX0, GY1); ctx.moveTo(GX0, gy(0)); ctx.lineTo(GX1, gy(0)); ctx.stroke();
+    C.label(ctx, GX0 + 8, GY0 + 14, 'U', 18, 'rgb(' + ink + ')', 'left');
+    C.label(ctx, GX1, gy(0) - 8, 'r', 18, 'rgb(' + ink + ')', 'right');
+    /* кривая */
+    ctx.save();
+    ctx.beginPath(); ctx.rect(GX0, GY0, GX1 - GX0, GY1 - GY0); ctx.clip();
+    ctx.strokeStyle = 'rgb(' + CV_U + ')'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (var k = 0; k <= 380; k++) {
+      var r = R0 + (R1 - R0) * k / 380, u = Math.min(U1 + 1, paraU(r, prit));
+      if (k) ctx.lineTo(gx(r), gy(u)); else ctx.moveTo(gx(r), gy(u));
+    }
+    ctx.stroke();
+    ctx.restore();
+    /* стрелка kT от дна ямы, как на рисунке главы */
+    var u0 = prit ? -1 : 0, top = u0 + b.kT, yTop = Math.max(GY0 + 2, gy(top)), xa = gx(RMIN), acc = 'rgb(' + tone.accent + ')';
+    ctx.strokeStyle = acc; ctx.fillStyle = acc; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(xa, gy(u0)); ctx.lineTo(xa, yTop + 8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(xa, yTop); ctx.lineTo(xa - 6, yTop + 11); ctx.lineTo(xa + 6, yTop + 11); ctx.closePath(); ctx.fill();
+    if (gy(top) >= GY0) {
+      ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(xa - 14, gy(top)); ctx.lineTo(GX1, gy(top)); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    /* подпись над уровнем kT, правее стрелки; у края графика под верхом */
+    C.label(ctx, xa + 12, Math.max(GY0 + 18, gy(top) - 8), 'kT', 18, acc, 'left');
+    if (prit) C.label(ctx, gx(RMIN) + 10, gy(-1) + 20, 'дно ямы', 17, mut, 'left');
+  }
+
+  function risLegendu(ctx, tone) {
+    var ink = 'rgba(' + tone.ink + ',.9)', slova = ['без соседей', 'с соседями', 'в капле'];
+    for (var c = 0; c < 3; c++) {
+      var y = 364 + 27 * c;
+      ctx.fillStyle = 'rgb(' + CV[c] + ')';
+      ctx.beginPath(); ctx.arc(GX0 + 6, y - 6, RMIN / 2 * PX + 1, 0, 6.2832); ctx.fill();
+      C.label(ctx, GX0 + 22, y, slova[c], 17, ink, 'left');
+    }
+  }
+
+  function draw(ctx) {
+    var t0 = performance.now(), tone = C.tones(ctx);
+    risYashchik(ctx, tone);
+    risYamu(ctx, tone);
+    risLegendu(ctx, tone);
+    C.readout(ctx, 835, 26, 'kT / ГЛУБИНА ЯМЫ', num(b.kT, 2), 'rgb(' + tone.ink + ')');
+    C.readout(ctx, 990, 26, 'В КАПЛЯХ', Math.round(100 * b.vk) + ' %', 'rgb(' + CV[2] + ')');
+    var ms = performance.now() - t0;
+    b.msRis = b.msRis == null ? ms : 0.95 * b.msRis + 0.05 * ms;
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+  window.__demoState = sostoyanie();
+
+  /* ── ручки ── */
+  function postavitT(v) { b.s.T0 = C.clamp(v, T_MIN, T_MAX); obnovit(); }
+  function hod(n) {
+    if (n === -1 && b.s.T0 <= T_MIN) return;
+    if (n === 1 && b.s.T0 >= T_MAX) return;
+    b.hod = b.hod === n ? 0 : n; obnovit();
+  }
+  function pritYazhenie(v) {
+    if (b.s.prit === v) return;
+    b.s.prit = v; sily(b.s);
+    b.rezhim = vybratRezhim(); obnovit();
+  }
+  function zanovo(zerno) { Object.assign(b, nachalo(zerno)); window.__demoState = sostoyanie(); obnovit(); }
+
+  /* Для автопроверки: __demoSet({ T, prit, hod, seed, zanovo }) ставит ручки
+     (seed с zanovo начинает ящик с другим зерном) и возвращает показания;
+     __demoModel даёт счёт для сверки. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.zanovo) Object.assign(b, nachalo(o.seed));
+    if (o.T != null) b.s.T0 = o.T;
+    if (o.prit != null) pritYazhenie(!!o.prit);
+    if (o.hod != null) b.hod = o.hod;
+    obnovit();
+    window.__demoState = sostoyanie();
+    return window.__demoState;
+  };
+  window.__demoModel = { paraU: paraU, paraF: paraF, stenaU: stenaU, stenaF: stenaF, sozdat: sozdat, shag: shag,
+                         sily: sily, kapli: kapli, kinT: kinT, energiya: energiya, progonNVE: progonNVE,
+                         proverkaSil: proverkaSil, mulberry32: mulberry32, get s() { return B.current.s; },
+                         konst: { LX: LX, LY: LY, N_MOL: N_MOL, RMIN: RMIN, RON: RON, RC: RC, RB: RB, SW: SW,
+                                  HSTEP: HSTEP, GRAV: GRAV, TAU_T: TAU_T, N_KAPLYA: N_KAPLYA,
+                                  SHAGOV_ZA_KADR: SHAGOV_ZA_KADR, T_MIN: T_MIN, T_MAX: T_MAX, T_START: T_START,
+                                  SKOROST: SKOROST, ZERNO: ZERNO, PROGREV: PROGREV } };
+
+  var s = b.s;
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Slider} label="Температура:" log=${true} min=${T_MIN} max=${T_MAX} step=${0.005} value=${s.T0}
+                     onChange=${postavitT} display=${'kT = ' + num(s.T0, 2)} />
+        <${C.Group}>
+          <${C.Btn} active=${b.hod === -1} onClick=${function () { hod(-1); }}>Остужать<//>
+          <${C.Btn} active=${b.hod === 1} onClick=${function () { hod(1); }}>Греть<//>
+        <//>
+        <${C.Group} label="Притяжение:">
+          <${C.Btn} active=${s.prit} onClick=${function () { pritYazhenie(true); }}>есть<//>
+          <${C.Btn} active=${!s.prit} onClick=${function () { pritYazhenie(false); }}>нет<//>
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${function () { zanovo(); }}>Заново<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <div class="status gsp-status" data-ten=${TEN}>
+        <span>${FRAZY[b.rezhim]}</span>
+      </div>
+    </div>`;
+}
+
+C.mount(GazSPrityazheniem);
+</script>
+</body>
+</html>

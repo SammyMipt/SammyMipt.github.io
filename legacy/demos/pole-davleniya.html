@@ -1,0 +1,997 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Поле давления в сосуде</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-08/">&larr; Неделя 08</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=pole-davleniya"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Второй акт восьмой недели: вход бочкой и ответ ей, закон Паскаля,
+   свободная поверхность, Архимед (решение автора 16.10 «Демку делаем»;
+   решения автора, п. 2, «ответ демкой и законом Паскаля»; карточка 4
+   описи briefs/lekciya08_demki_minuty.md §1.4; рамка §4, вход и шаги
+   «Градиент и ρgh», «Архимед»; §6, демка 1). Блоки главы: bochka-s-trubkoj,
+   zakon-paskalya, svobodnaya-poverhnost, sila-arhimeda.
+
+   ПОЛЕ. Во всех четырёх вкладках давление берётся из второго закона для
+   кубика жидкости, который движется вместе с сосудом:
+       ρ a⃗ = ρ g⃗ − ∇P,   ∇P = ρ (g⃗ − a⃗).
+   Счёт идёт в системе земли, сил инерции в нём нет: a⃗ есть ускорение
+   кубика относительно земли. Покой: a⃗ = 0, P = P₀ + ρg(y_s − y).
+   Разгон по горизонтали: a⃗ = (a, 0), P = P₀ − ρax + ρg(h₀ − y).
+   Вращение как целое: a⃗ = −ω²r к оси, P = P₀ + ρω²r²/2 − ρg(y − y₀),
+   r² = x² + z². Поверхность есть изобара P = P₀ и берётся из самого поля,
+   изобары сдвинуты от неё вниз на p/ρg. Высоту y₀ на оси вращающейся
+   чашки демка находит делением пополам из сохранения объёма воды и
+   сверяет с формулой y₀ = h₀ − ω²R²/4g. Стрелка у кубика под курсором:
+   оранжевая −∇P/ρ, сила давления на единицу массы, красная g⃗, зелёная их
+   сумма; градиент берётся центральной разностью из поля, и сумма обязана
+   совпасть с ускорением сосуда.
+
+   СИЛЫ ИНТЕГРАЛОМ. Сила на дно и на крышку бочки есть интеграл давления
+   сверх атмосферного по кругу и по кольцу вокруг трубки. Сила на тело
+   есть −∮P n⃗ dS по всем граням призмы: сечение многоугольником в
+   плоскости рисунка, толщина t поперёк. Боковые грани интегрируются
+   Гауссом–Лежандром, четыре узла на отрезок, по длине ребра и по
+   толщине; торцы веером треугольников по серединам сторон. Давление
+   здесь не выше второй степени по координатам, и обе квадратуры для него
+   точны. Закон Архимеда на тело не кладётся, а проверяется: интеграл
+   сравнивается с ρV(a⃗ − g⃗) (sila-arhimeda, #uskorenie), в покое с ρgV.
+   Тело, прижатое ко дну без зазора, мокрой нижней грани не имеет, и
+   интеграл берётся по остальным; ожидание тогда ρgV минус давление дна
+   на площадь нижней грани.
+
+   ЧИСЛА ГЛАВЫ. ρ = 1000 кг/м³, g = 9,81 м/с², P₀ = 101 325 Па.
+   Бочка (bochka-s-trubkoj, решение рамки без автора № 4): дно и крышка
+   диаметром 56 см, трубка 1 см² на 10 м, литр воды. Высоты бочки в
+   главе нет; 52 см взяты по пропорциям ris-bochka, на добавки она не
+   влияет. Тело той же формы и того же веса, что вода, стоит на дне, и
+   столбик в трубке стоит на теле под ним: дну добавляется вес столбика,
+   крышке ничего. Разгон (svobodnaya-poverhnost, sila-arhimeda): 2 м/с²,
+   как торможение поезда третьей недели, бак 1,2 м шириной с водой на
+   1 м; кубик 10 см. Чашка радиусом 4 см на двух оборотах в секунду;
+   глубины чашки в главе нет, взяты 9 см стенки и 5 см воды в покое;
+   кубик 1 см в 2 см от оси. Тело в покое (sila-arhimeda): сосуд с водой
+   глубиной 1 м, кубик 10 см и неправильный шестиугольник той же площади
+   сечения, призмы толщиной 10 см.
+
+   ПРОВЕРКА 16.10 (node этим же кодом и hcheck на порту 49941, отчёт
+   briefs/proizvodstvo08_demka_davleniya_REPORT.md). Бочка с литром:
+   столб 10,00 м, у дна плюс 98 100 Па, 0,968 атм; дну плюс 24 162 Н,
+   крышке снизу плюс 24 152 Н, вес литра 9,81 Н, отношение 2463 (глава:
+   98 кПа, 24 кН, «в 2460 раз», крышке столько же); твёрдое тело: дну
+   плюс 9,81 Н, крышке 0. Разгон 2 м/с²: поверхность 11,52°, сила на
+   кубик 10,012 Н под углом 11,52° вперёд от вертикали, интеграл против
+   ρV(a⃗ − g⃗) до 6·10⁻¹⁴ Н. Чашка: края выше оси на 1,288 см (глава 1,3),
+   y₀ из объёма против формулы до 5·10⁻¹⁶ м; кубик 1 см: 3,158 мН к оси и
+   9,81 мН вверх. Кубик 10 см в покое 9,81 Н вверх, шестиугольник 9,81 Н,
+   горизонтальная часть до 2·10⁻¹³ Н; прижатый ко дну 1101,5 Н вниз, из
+   них 1013,3 Н от атмосферы (глава: 1100 и 1013). Отрицательный
+   контроль: поле с силой инерции не в ту сторону, ∇P = ρ(g⃗ + a⃗), даёт
+   поверхность и силу, наклонённые назад, расхождение с ρV(a⃗ − g⃗) 4,0 Н;
+   прижатое тело с мокрой нижней гранью даёт 9,81 Н вверх вместо 1101,5
+   вниз; наклон поверхности, снятый с пикселей канвы, совпадает с
+   формулой при 2 м/с² и даёт ноль в покое.
+
+   ЧЕГО ДЕМКА НЕ СЧИТАЕТ. Демка статичная: каждое положение сосуда
+   показано установившимся, как его даёт гидростатика, а плескания при
+   переходе нет. Налив литра идёт медленно, так что в каждый миг
+   жидкость покоится. Стенки жёсткие, вода несжимаема, поверхностного
+   натяжения нет. Напряжений внутри твёрдого тела демка не рисует: у него
+   они зависят от площадки и от того, как тело опирается. Трубка нарисована
+   толще настоящей и сжата по высоте, множитель напечатан на сцене. */
+
+/* ── чистая физика ──────────────────────────────────────────────
+   Отсюда до пометки «конец чистой физики» код не знает о браузере и
+   прогоняется в node. */
+
+var RHO = 1000, G = 9.81, P_ATM = 101325;
+
+/* Гаусс–Лежандр, четыре узла: точен для многочленов до седьмой степени */
+var GL_X = [-0.8611363115940526, -0.3399810435848563, 0.3399810435848563, 0.8611363115940526];
+var GL_W = [0.3478548451374538, 0.6521451548625461, 0.6521451548625461, 0.3478548451374538];
+function gl(f, a, b, n) {
+  var s = 0, hh = (b - a) / n;
+  for (var k = 0; k < n; k++) {
+    var m = a + (k + 0.5) * hh;
+    for (var j = 0; j < 4; j++) s += GL_W[j] * f(m + GL_X[j] * hh / 2);
+  }
+  return s * hh / 2;
+}
+
+var BOCHKA = { R: 0.28, H: 0.52, S: 1e-4, L: 10.5 };   /* радиус, высота, сечение и длина трубки */
+BOCHKA.r = Math.sqrt(BOCHKA.S / Math.PI);
+var LITR = 1e-3;
+var RAZGON = { hw: 0.6, H: 1.5, h0: 1.0, b: 0.1, xc: 0, yc: 0.5 };
+var VRASH = { R: 0.04, H: 0.09, h0: 0.05, b: 0.01, xc: 0.02, yc: 0.015 };
+var SOSUD = { hw: 0.6, H: 1.1, h0: 1.0, t: 0.1 };
+
+/* Поверхность есть изобара P = P₀. Во всех полях давление по высоте
+   падает с наклоном ρg, поэтому её высота читается из давления у дна. */
+function poverhnost(sc, x) { return (sc.P(x, 0, 0) - P_ATM) / (RHO * G); }
+function izobara(sc, x, p) { return poverhnost(sc, x) - p / (RHO * G); }
+
+function scenaBochka(V, tverdoe) {
+  var B = BOCHKA, h = V / B.S, yTop = B.H + h;
+  return {
+    id: 'bochka', V: V, h: h, yTop: yTop, tverdoe: !!tverdoe, xmin: -B.R, xmax: B.R,
+    P: function (x, y) { return P_ATM + RHO * G * (yTop - y); },
+    aSosuda: function () { return [0, 0, 0]; },
+    vnutri: function (x, y) {
+      var r = Math.abs(x);
+      return y >= 0 && ((y <= B.H && r <= B.R) || (y <= yTop && r <= B.r));
+    }
+  };
+}
+function scenaRazgon(a) {
+  var R = RAZGON;
+  return {
+    id: 'razgon', a: a, xmin: -R.hw, xmax: R.hw,
+    P: function (x, y) { return P_ATM - RHO * a * x + RHO * G * (R.h0 - y); },
+    aSosuda: function () { return [a, 0, 0]; },
+    vnutri: function (x, y) { return Math.abs(x) <= R.hw && y >= 0 && y <= R.h0 - a * x / G; }
+  };
+}
+function scenaVrashchenie(n) {
+  var R = VRASH, w = 2 * Math.PI * n, w2 = w * w, y0 = R.h0;
+  var sc = {
+    id: 'vrashchenie', n: n, omega: w, xmin: -R.R, xmax: R.R,
+    P: function (x, y, z) { z = z || 0; return P_ATM + RHO * w2 * (x * x + z * z) / 2 - RHO * G * (y - y0); },
+    aSosuda: function (x, y, z) { return [-w2 * x, 0, -w2 * (z || 0)]; },
+    vnutri: function (x, y) { return Math.abs(x) <= R.R && y >= 0 && y <= poverhnost(sc, x); }
+  };
+  /* высота на оси из сохранения объёма: ∫2πr·y_s(r) dr = πR²h₀ */
+  var V0 = Math.PI * R.R * R.R * R.h0, lo = -1, hi = 1;
+  function obyom() { return gl(function (r) { return 2 * Math.PI * r * poverhnost(sc, r); }, 0, R.R, 4); }
+  for (var i = 0; i < 200 && hi - lo > 1e-15; i++) {
+    y0 = (lo + hi) / 2;
+    if (obyom() < V0) lo = y0; else hi = y0;
+  }
+  y0 = (lo + hi) / 2;
+  sc.y0 = y0;
+  sc.y0Formula = R.h0 - w2 * R.R * R.R / (4 * G);
+  sc.rise = poverhnost(sc, R.R) - poverhnost(sc, 0);
+  sc.riseFormula = w2 * R.R * R.R / (2 * G);
+  return sc;
+}
+function scenaSosud() {
+  var S = SOSUD;
+  return {
+    id: 'telo', xmin: -S.hw, xmax: S.hw,
+    P: function (x, y) { return P_ATM + RHO * G * (S.h0 - y); },
+    aSosuda: function () { return [0, 0, 0]; },
+    vnutri: function (x, y) { return Math.abs(x) <= S.hw && y >= 0 && y <= S.h0; }
+  };
+}
+
+/* ── многоугольники: обход против часовой стрелки при оси y вверх ── */
+function ploshchad(poly) {
+  var s = 0;
+  for (var i = 0; i < poly.length; i++) {
+    var p = poly[i], q = poly[(i + 1) % poly.length];
+    s += p[0] * q[1] - q[0] * p[1];
+  }
+  return s / 2;
+}
+function centr(poly) {
+  var A = ploshchad(poly), cx = 0, cy = 0;
+  for (var i = 0; i < poly.length; i++) {
+    var p = poly[i], q = poly[(i + 1) % poly.length], k = p[0] * q[1] - q[0] * p[1];
+    cx += (p[0] + q[0]) * k; cy += (p[1] + q[1]) * k;
+  }
+  return [cx / (6 * A), cy / (6 * A)];
+}
+function sdvig(poly, dx, dy) { return poly.map(function (p) { return [p[0] + dx, p[1] + dy]; }); }
+function kvadrat(b) { return [[-b / 2, 0], [b / 2, 0], [b / 2, b], [-b / 2, b]]; }
+/* Неправильный шестиугольник с плоским низом (чтобы его можно было прижать
+   ко дну), растянутый до площади сечения кубика 10 см, 0,01 м²:
+   объём и вытесненная вода у обоих тел одни. */
+var SHEST = (function () {
+  var p = [[-0.06, 0], [0.06, 0], [0.095, 0.055], [0.035, 0.115], [-0.05, 0.10], [-0.09, 0.045]];
+  var k = Math.sqrt(0.01 / ploshchad(p)), q = p.map(function (v) { return [v[0] * k, v[1] * k]; });
+  return sdvig(q, -centr(q)[0], 0);
+})();
+var FORMY = { kub: kvadrat(0.1), shest: SHEST };
+function vysota(poly) { var m = 0; poly.forEach(function (p) { m = Math.max(m, p[1]); }); return m; }
+
+/* Сила давления на призму: −∮P n⃗ dS. ySuho — высота сухой нижней грани
+   (тело прижато ко дну), иначе null. */
+function silaNaTelo(P, poly, t, ySuho) {
+  var F = [0, 0, 0], n = poly.length, i;
+  for (i = 0; i < n; i++) {
+    var p = poly[i], q = poly[(i + 1) % n], dx = q[0] - p[0], dy = q[1] - p[1], len = Math.hypot(dx, dy);
+    if (ySuho != null && Math.abs(p[1] - ySuho) < 1e-12 && Math.abs(q[1] - ySuho) < 1e-12) continue;
+    var nx = dy / len, ny = -dx / len;                       /* нормаль наружу */
+    var I = len * gl(function (s) {
+      var x = p[0] + s * dx, y = p[1] + s * dy;
+      return gl(function (z) { return P(x, y, z); }, -t / 2, t / 2, 2);
+    }, 0, 1, 4);
+    F[0] -= nx * I; F[1] -= ny * I;
+  }
+  /* торцы z = ±t/2: веер треугольников, по серединам сторон */
+  var c = poly[0];
+  for (i = 1; i < n - 1; i++) {
+    var A = poly[i], B = poly[i + 1];
+    var S = ((A[0] - c[0]) * (B[1] - c[1]) - (B[0] - c[0]) * (A[1] - c[1])) / 2;
+    var mid = [[(c[0] + A[0]) / 2, (c[1] + A[1]) / 2], [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2], [(B[0] + c[0]) / 2, (B[1] + c[1]) / 2]];
+    var Ip = 0, Im = 0;
+    for (var j = 0; j < 3; j++) { Ip += P(mid[j][0], mid[j][1], t / 2) / 3; Im += P(mid[j][0], mid[j][1], -t / 2) / 3; }
+    F[2] += (Im - Ip) * S;
+  }
+  return F;
+}
+/* Ожидание по главе: ρV(a⃗ − g⃗); ускорение линейно по координатам, и
+   среднее по объёму равно значению в центре сечения. */
+function silaOzhid(sc, poly, t, ySuho) {
+  var V = ploshchad(poly) * t, c = centr(poly), a = sc.aSosuda(c[0], c[1], 0);
+  var F = [RHO * V * a[0], RHO * V * (a[1] + G), RHO * V * a[2]];
+  if (ySuho != null) {
+    for (var i = 0; i < poly.length; i++) {
+      var p = poly[i], q = poly[(i + 1) % poly.length];
+      if (Math.abs(p[1] - ySuho) < 1e-12 && Math.abs(q[1] - ySuho) < 1e-12)
+        F[1] -= sc.P(0, ySuho, 0) * Math.abs(q[0] - p[0]) * t;     /* давление дна на сухую грань */
+    }
+  }
+  return F;
+}
+
+/* Дно и крышка бочки: интеграл давления сверх атмосферного */
+function silyBochki(sc) {
+  var B = BOCHKA;
+  if (sc.tverdoe) return { dno: RHO * G * (Math.PI * B.R * B.R * B.H + sc.V), kryshka: 0 };
+  return {
+    dno: gl(function (r) { return (sc.P(r, 0, 0) - P_ATM) * 2 * Math.PI * r; }, 0, B.R, 8),
+    kryshka: gl(function (r) { return (sc.P(r, B.H, 0) - P_ATM) * 2 * Math.PI * r; }, B.r, B.R, 8)
+  };
+}
+
+/* Кубик под курсором: давление, градиент центральной разностью и
+   ускорение g⃗ − ∇P/ρ, которое обязано совпасть с ускорением сосуда */
+function zond(sc, x, y) {
+  var e = 1e-5, P = sc.P(x, y, 0);
+  var gx = (sc.P(x + e, y, 0) - sc.P(x - e, y, 0)) / (2 * e);
+  var gy = (sc.P(x, y + e, 0) - sc.P(x, y - e, 0)) / (2 * e);
+  return { x: x, y: y, P: P, gauge: P - P_ATM, grad: [gx, gy],
+           aKub: [-gx / RHO, -G - gy / RHO], aSos: sc.aSosuda(x, y, 0).slice(0, 2) };
+}
+
+/* Наибольшее давление сверх атмосферного у дна, по ширине сосуда */
+function pMaksimum(sc) {
+  var m = 0;
+  for (var i = 0; i <= 40; i++) m = Math.max(m, sc.P(sc.xmin + (sc.xmax - sc.xmin) * i / 40, 0, 0) - P_ATM);
+  return m;
+}
+function shagIzobar(pMax) {
+  var raw = pMax / 10, e = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / e;
+  return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * e;
+}
+/* ── конец чистой физики ── */
+
+var SUP = { '-': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+            '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
+function sup(n) { return String(n).split('').map(function (c) { return SUP[c] || c; }).join(''); }
+function spaced(s) { return s.replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+function num(x, d) {
+  var s = x.toFixed(d), p = s.split('.');
+  if (p[0].replace('-', '').length > 4) p[0] = spaced(p[0]);
+  return p.join(',').replace('-', '−');
+}
+function sig(x, n) {
+  n = n || 3;
+  if (x === 0) return '0';
+  var a = Math.abs(x), e = Math.floor(Math.log10(a));
+  if (e < -3 || e > 5) {
+    var m = x / Math.pow(10, e);
+    if (Math.abs(m) >= 9.995) { m /= 10; e += 1; }
+    return num(m, n - 1) + '·10' + sup(e);
+  }
+  if (e >= n - 1) return num(Math.round(x), 0);
+  return num(x, Math.max(0, n - 1 - e));
+}
+function davlT(p) { return Math.abs(p) >= 1000 ? sig(p / 1000, 3) + ' кПа' : sig(p, 3) + ' Па'; }
+function silaT(F) {
+  var a = Math.abs(F);
+  if (a < 0.05) return a < 1e-9 ? '0 Н' : sig(F * 1000, 3) + ' мН';
+  if (a >= 10000) return num(F / 1000, 2) + ' кН';
+  if (a >= 1000) return num(F, 1) + ' Н';
+  return sig(F, 3) + ' Н';
+}
+function shagT(p) { return p >= 1000 ? num(p / 1000, p % 1000 ? 1 : 0) + ' кПа' : num(p, p % 1 ? 1 : 0) + ' Па'; }
+function ugolT(rad) { return num(Math.abs(rad) * 180 / Math.PI, 1) + '°'; }
+
+/* ── сцена ── */
+var W = 1000, HGT = 440;
+var ORANGE = '#ffb454', RED = '#ff7a66', GREEN = '#7ed957', CYAN = '53,200,216';
+var TELO_FILL = '#c8b28a', KANT = 'rgba(6,14,30,.78)';
+var RAMP = ['#cde2fb', '#b7d3f6', '#9ec5f4', '#86b6ef', '#6da7ec', '#5598e7', '#3987e5',
+            '#2a78d6', '#256abf', '#1c5cab', '#184f95'].map(function (h) {
+  var n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255];
+});
+function cvet(t) {
+  t = C.clamp(t, 0, 1) * (RAMP.length - 1);
+  var i = Math.min(RAMP.length - 2, Math.floor(t)), f = t - i, a = RAMP[i], b = RAMP[i + 1];
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+var BAR = { x: 618, y0: 70, y1: 360, w: 14 };
+var RX = 975;                                   /* правый край табло */
+
+/* экранные отображения вкладок: физические метры в логические пиксели */
+function lin(K, XC, Y0) {
+  return { K: K, XC: XC, Y0: Y0,
+    to: function (x, y) { return [XC + x * K, Y0 - y * K]; },
+    inv: function (X, Y) { return [(X - XC) / K, (Y0 - Y) / K]; } };
+}
+var GEOM = {
+  bochka: (function () {
+    var B = BOCHKA, K = 340, KT = 20, Y0 = 418, TW = 7, XC = 270, Yl = Y0 - B.H * K;
+    return { K: K, KT: KT, Y0: Y0, TW: TW, XC: XC, Yl: Yl,
+      to: function (x, y) { return y > B.H ? [XC + x / B.r * TW, Yl - (y - B.H) * KT] : [XC + x * K, Y0 - y * K]; },
+      inv: function (X, Y) { return Y < Yl ? [(X - XC) / TW * B.r, B.H + (Yl - Y) / KT] : [(X - XC) / K, (Y0 - Y) / K]; },
+      Ytube: function (y) { return Yl - (y - B.H) * KT; } };
+  })(),
+  razgon: lin(250, 270, 400),
+  vrashchenie: lin(4000, 260, 410),
+  telo: lin(340, 270, 410)
+};
+GEOM.bochka.szhatie = Math.round(GEOM.bochka.K / GEOM.bochka.KT);
+
+var VKLADKI = [
+  { id: 'bochka', label: 'Бочка' },
+  { id: 'razgon', label: 'Разгон' },
+  { id: 'vrashchenie', label: 'Вращение' },
+  { id: 'telo', label: 'Тело' }
+];
+var PO_ID = {}; VKLADKI.forEach(function (v) { PO_ID[v.id] = v; });
+function vkladkaIzAdresa() {
+  try {
+    var q = new URLSearchParams(location.search).get('vkladka');
+    if (q && PO_ID[q]) return q;
+  } catch (e) {}
+  return 'bochka';
+}
+var ZOND0 = { bochka: [0, 0.26], razgon: [0.33, 0.45], vrashchenie: [0.03, 0.035], telo: [-0.36, 0.5] };
+
+function strelka(ctx, x0, y0, x1, y1, col, w) {
+  var dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy);
+  if (L < 4) return;
+  w = w || 2.6;
+  var ux = dx / L, uy = dy / L, hd = Math.min(11, L * 0.6), hw = hd * 0.5;
+  var bx = x1 - ux * hd, by = y1 - uy * hd;
+  function put(c, lw, kant) {
+    ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = lw; ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(bx - uy * hw, by + ux * hw); ctx.lineTo(bx + uy * hw, by - ux * hw); ctx.closePath();
+    if (kant) { ctx.lineWidth = 2.4; ctx.stroke(); }
+    ctx.fill();
+  }
+  put(KANT, w + 2.4, true);
+  put(col, w, false);
+}
+
+function PoleDavleniya() {
+  var S = useRef(null);
+  if (!S.current) {
+    S.current = {
+      vk: vkladkaIzAdresa(), V: LITR, tverdoe: false, nalivaem: false, tUi: 0,
+      a: 2, n: 2, phi: 0, teloRz: true, teloVr: true, forma: 'kub', glub: 0.4, prizhat: false,
+      zondy: { bochka: ZOND0.bochka.slice(), razgon: ZOND0.razgon.slice(), vrashchenie: ZOND0.vrashchenie.slice(), telo: ZOND0.telo.slice() },
+      kesh: null, rast: null, rastKey: ''
+    };
+  }
+  var st = S.current;
+  var [ui, setUi] = useState({ n: 0 });
+  function obnovit() { setUi({ n: Date.now() + Math.random() }); }
+
+  /* ── модель текущей вкладки, пересчёт по ключу ручек ── */
+  function model() {
+    var key = [st.vk, st.V, st.tverdoe, st.a, st.n, st.teloRz, st.teloVr, st.forma, st.glub, st.prizhat].join('|');
+    if (st.kesh && st.kesh.key === key) return st.kesh;
+    var m = { key: key, vk: st.vk, telo: null };
+    if (st.vk === 'bochka') {
+      m.sc = scenaBochka(st.V, st.tverdoe);
+      var s1 = silyBochki(m.sc), s0 = silyBochki(scenaBochka(0, st.tverdoe));
+      var w1 = silyBochki(scenaBochka(st.V, false)), w0 = silyBochki(scenaBochka(0, false));
+      m.dno = s1.dno; m.kryshka = s1.kryshka;
+      m.dDno = s1.dno - s0.dno; m.dKryshka = s1.kryshka - s0.kryshka;
+      m.dDnoVoda = w1.dno - w0.dno; m.dKryshkaVoda = w1.kryshka - w0.kryshka;
+      m.ves = RHO * G * st.V;
+      m.pMax = RHO * G * (BOCHKA.H + LITR / BOCHKA.S);       /* шкала цвета по литру: бочка темнеет по мере налива */
+    } else if (st.vk === 'razgon') {
+      m.sc = scenaRazgon(st.a);
+      m.tilt = Math.atan2(st.a, G);
+      if (st.teloRz) m.telo = { poly: sdvig(kvadrat(RAZGON.b), RAZGON.xc, RAZGON.yc - RAZGON.b / 2), t: RAZGON.b, ySuho: null };
+    } else if (st.vk === 'vrashchenie') {
+      m.sc = scenaVrashchenie(st.n);
+      if (st.teloVr) m.telo = { poly: sdvig(kvadrat(VRASH.b), VRASH.xc, VRASH.yc - VRASH.b / 2), t: VRASH.b, ySuho: null };
+    } else {
+      m.sc = scenaSosud();
+      var f = FORMY[st.forma], hb = vysota(f);
+      var yb = st.prizhat ? 0 : SOSUD.h0 - st.glub - hb;
+      m.telo = { poly: sdvig(f, 0, yb), t: SOSUD.t, ySuho: st.prizhat ? 0 : null };
+    }
+    if (st.vk !== 'bochka') m.pMax = pMaksimum(m.sc);
+    m.shag = shagIzobar(m.pMax);
+    if (m.telo) {
+      var T = m.telo;
+      T.F = silaNaTelo(m.sc.P, T.poly, T.t, T.ySuho);
+      T.Fexp = silaOzhid(m.sc, T.poly, T.t, T.ySuho);
+      T.V = ploshchad(T.poly) * T.t;
+      T.c = centr(T.poly);
+      /* атмосфера над водой: P₀ на мокрых гранях, снизу грань сухая и не замыкает её */
+      T.atm = T.ySuho != null ? -silaNaTelo(function () { return P_ATM; }, T.poly, T.t, T.ySuho)[1] : 0;
+      T.err = Math.hypot(T.F[0] - T.Fexp[0], T.F[1] - T.Fexp[1], T.F[2] - T.Fexp[2]);
+    }
+    st.kesh = m;
+    return m;
+  }
+  function zondTek(m) {
+    var z = st.zondy[st.vk];
+    return zond(m.sc, z[0], z[1]);
+  }
+
+  function step(dt) {
+    if (st.vk === 'bochka' && st.nalivaem) {
+      st.V = Math.min(LITR, st.V + LITR / 4 * dt);            /* литр за четыре секунды: налив медленный, жидкость в покое */
+      st.tUi += dt;
+      if (st.V >= LITR) { st.V = LITR; st.nalivaem = false; obnovit(); }
+      else if (st.tUi > 0.1) { st.tUi = 0; obnovit(); }
+    }
+    if (st.vk === 'vrashchenie') st.phi = (st.phi + 2 * Math.PI * st.n * dt) % (2 * Math.PI);
+  }
+
+  /* ── рисование ── */
+  function putZhidkosti(ctx, m, g) {
+    var sc = m.sc, i, p;
+    ctx.beginPath();
+    if (m.vk === 'bochka') {
+      var B = BOCHKA, RK = B.R * g.K, Yt = g.Ytube(sc.yTop);
+      ctx.moveTo(g.XC - RK, g.Y0); ctx.lineTo(g.XC + RK, g.Y0); ctx.lineTo(g.XC + RK, g.Yl);
+      if (sc.h > 0) { ctx.lineTo(g.XC + g.TW, g.Yl); ctx.lineTo(g.XC + g.TW, Yt); ctx.lineTo(g.XC - g.TW, Yt); ctx.lineTo(g.XC - g.TW, g.Yl); }
+      ctx.lineTo(g.XC - RK, g.Yl);
+    } else if (m.vk === 'telo') {
+      p = g.to(-SOSUD.hw, 0); ctx.moveTo(p[0], p[1]);
+      p = g.to(SOSUD.hw, 0); ctx.lineTo(p[0], p[1]);
+      p = g.to(SOSUD.hw, SOSUD.h0); ctx.lineTo(p[0], p[1]);
+      p = g.to(-SOSUD.hw, SOSUD.h0); ctx.lineTo(p[0], p[1]);
+    } else {
+      p = g.to(sc.xmin, 0); ctx.moveTo(p[0], p[1]);
+      p = g.to(sc.xmax, 0); ctx.lineTo(p[0], p[1]);
+      for (i = 0; i <= 60; i++) {
+        var x = sc.xmax - (sc.xmax - sc.xmin) * i / 60;
+        p = g.to(x, poverhnost(sc, x)); ctx.lineTo(p[0], p[1]);
+      }
+    }
+    ctx.closePath();
+  }
+  function ramka(m, g) {
+    if (m.vk === 'bochka') return [g.XC - BOCHKA.R * g.K, g.Ytube(BOCHKA.H + BOCHKA.L), g.XC + BOCHKA.R * g.K, g.Y0];
+    var a = g.to(m.sc.xmin, m.vk === 'razgon' ? RAZGON.H : m.vk === 'vrashchenie' ? VRASH.H : SOSUD.H), b = g.to(m.sc.xmax, 0);
+    return [a[0], a[1], b[0], b[1]];
+  }
+  /* растр давления: клетка 2 логических пикселя, пересчёт только при смене ручек */
+  function rastr(m, g) {
+    var bx = ramka(m, g), key = m.key + '|' + m.pMax;
+    if (st.rast && st.rastKey === key) return { img: st.rast, bx: bx };
+    var cell = 2, nx = Math.max(1, Math.ceil((bx[2] - bx[0]) / cell)), ny = Math.max(1, Math.ceil((bx[3] - bx[1]) / cell));
+    var cv = st.rast && st.rast.width === nx && st.rast.height === ny ? st.rast : document.createElement('canvas');
+    cv.width = nx; cv.height = ny;
+    var c2 = cv.getContext('2d'), im = c2.createImageData(nx, ny), d = im.data;
+    for (var j = 0; j < ny; j++) for (var i = 0; i < nx; i++) {
+      var q = g.inv(bx[0] + (i + 0.5) * cell, bx[1] + (j + 0.5) * cell);
+      var col = cvet((m.sc.P(q[0], q[1], 0) - P_ATM) / m.pMax), k = 4 * (j * nx + i);
+      d[k] = col[0]; d[k + 1] = col[1]; d[k + 2] = col[2]; d[k + 3] = 255;
+    }
+    c2.putImageData(im, 0, 0);
+    st.rast = cv; st.rastKey = key;
+    return { img: cv, bx: bx };
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted;
+    var m = model(), g = GEOM[m.vk], sc = m.sc, i, p, q;
+    var tverd = m.vk === 'bochka' && sc.tverdoe;
+
+    /* жидкость: цвет давления и изобары внутри контура */
+    ctx.save();
+    putZhidkosti(ctx, m, g);
+    if (tverd) {
+      ctx.fillStyle = 'rgba(' + ink + ',.16)'; ctx.fill();
+      ctx.clip();
+      ctx.strokeStyle = 'rgba(' + ink + ',.32)'; ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (i = -600; i < 600; i += 14) { ctx.moveTo(g.XC + i, g.Y0); ctx.lineTo(g.XC + i + 420, g.Y0 - 420); }
+      ctx.stroke();
+    } else {
+      ctx.clip();
+      var R = rastr(m, g);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(R.img, R.bx[0], R.bx[1], R.bx[2] - R.bx[0], R.bx[3] - R.bx[1]);
+      var pTop = pMaksimum(sc);
+      for (var pk = m.shag; pk < pTop - 1e-9; pk += m.shag) {
+        var pts = [];
+        for (i = 0; i <= 80; i++) {
+          var x = sc.xmin + (sc.xmax - sc.xmin) * i / 80;
+          pts.push(g.to(x, izobara(sc, x, pk)));
+        }
+        if (m.vk === 'bochka' && izobara(sc, 0, pk) > BOCHKA.H) {
+          var Yb = g.Ytube(izobara(sc, 0, pk)); pts = [[g.XC - 20, Yb], [g.XC + 20, Yb]];
+        }
+        [['rgba(255,255,255,.5)', 2.6], ['rgba(8,22,48,.6)', 1.1]].forEach(function (s) {
+          ctx.strokeStyle = s[0]; ctx.lineWidth = s[1];
+          ctx.beginPath(); pts.forEach(function (pp, k) { if (k) ctx.lineTo(pp[0], pp[1]); else ctx.moveTo(pp[0], pp[1]); }); ctx.stroke();
+        });
+      }
+    }
+    ctx.restore();
+
+    /* поверхность: изобара атмосферного давления */
+    if (!tverd && !(m.vk === 'bochka' && sc.h <= 0)) {
+      ctx.strokeStyle = 'rgb(' + CYAN + ')'; ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      if (m.vk === 'bochka') {
+        var Yt = g.Ytube(sc.yTop); ctx.moveTo(g.XC - g.TW, Yt); ctx.lineTo(g.XC + g.TW, Yt);
+      } else {
+        var hs = m.vk === 'telo' ? function () { return SOSUD.h0; } : function (x) { return poverhnost(sc, x); };
+        for (i = 0; i <= 60; i++) { var xs = sc.xmin + (sc.xmax - sc.xmin) * i / 60; p = g.to(xs, hs(xs)); if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }
+      }
+      ctx.stroke();
+    }
+
+    /* стенки и обстановка вкладки */
+    ctx.strokeStyle = 'rgba(' + ink + ',.85)'; ctx.lineWidth = 3; ctx.lineJoin = 'miter';
+    if (m.vk === 'bochka') risBochka(ctx, m, g, ink, mut);
+    else if (m.vk === 'razgon') risRazgon(ctx, m, g, ink, mut);
+    else if (m.vk === 'vrashchenie') risVrash(ctx, m, g, ink, mut);
+    else {
+      ctx.beginPath(); p = g.to(-SOSUD.hw, SOSUD.H); ctx.moveTo(p[0], p[1]);
+      p = g.to(-SOSUD.hw, 0); ctx.lineTo(p[0], p[1]); p = g.to(SOSUD.hw, 0); ctx.lineTo(p[0], p[1]);
+      p = g.to(SOSUD.hw, SOSUD.H); ctx.lineTo(p[0], p[1]); ctx.stroke();
+      p = g.to(SOSUD.hw, SOSUD.h0);
+      C.label(ctx, p[0] + 10, p[1] + 6, '1 м', 17, 'rgb(' + mut + ')', 'left');
+    }
+
+    if (m.telo) risTelo(ctx, m, g, ink, mut);
+    if (!tverd) risZond(ctx, m, g, ink, mut);
+    risShkala(ctx, m, ink, mut);
+    risTablo(ctx, m, ink, mut);
+  }
+
+  function risBochka(ctx, m, g, ink, mut) {
+    var B = BOCHKA, sc = m.sc, RK = B.R * g.K, Ytop = g.Ytube(B.H + B.L), i;
+    ctx.beginPath();
+    ctx.moveTo(g.XC - g.TW, g.Yl); ctx.lineTo(g.XC - RK, g.Yl); ctx.lineTo(g.XC - RK, g.Y0);
+    ctx.lineTo(g.XC + RK, g.Y0); ctx.lineTo(g.XC + RK, g.Yl); ctx.lineTo(g.XC + g.TW, g.Yl);
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(g.XC - g.TW, g.Yl); ctx.lineTo(g.XC - g.TW, Ytop); ctx.moveTo(g.XC + g.TW, g.Yl); ctx.lineTo(g.XC + g.TW, Ytop); ctx.stroke();
+    /* пол */
+    ctx.strokeStyle = 'rgba(' + ink + ',.35)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(g.XC - RK - 40, g.Y0 + 2); ctx.lineTo(g.XC + RK + 40, g.Y0 + 2); ctx.stroke();
+    /* метки трубки через метр */
+    ctx.strokeStyle = 'rgba(' + ink + ',.6)'; ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    for (i = 0; i <= 10; i++) { var Ym = g.Ytube(B.H + i), dl = i % 5 ? 6 : 12; ctx.moveTo(g.XC + g.TW + 3, Ym); ctx.lineTo(g.XC + g.TW + 3 + dl, Ym); }
+    ctx.stroke();
+    C.label(ctx, g.XC + g.TW + 20, g.Ytube(B.H + 10) + 6, '10 м', 17, 'rgb(' + mut + ')', 'left');
+    C.label(ctx, g.XC + g.TW + 20, g.Ytube(B.H + 5) + 6, '5 м', 17, 'rgb(' + mut + ')', 'left');
+    C.label(ctx, g.XC - g.TW - 12, g.Ytube(B.H + 7.5), 'трубка 1 см²', 17, 'rgb(' + mut + ')', 'right');
+    C.label(ctx, g.XC - g.TW - 12, g.Ytube(B.H + 7.5) + 22, 'сжата по высоте', 17, 'rgb(' + mut + ')', 'right');
+    C.label(ctx, g.XC - g.TW - 12, g.Ytube(B.H + 7.5) + 44, 'в ' + g.szhatie + ' раз, толще', 17, 'rgb(' + mut + ')', 'right');
+    C.label(ctx, g.XC, g.Y0 + 22, 'дно и крышка 56 см', 17, 'rgb(' + mut + ')', 'center');
+    if (sc.tverdoe) {
+      /* столбик стоит на теле под ним, как гиря на столе */
+      if (sc.h > 0) {
+        strelka(ctx, g.XC, g.Yl - 34, g.XC, g.Yl + 10, RED, 2.6);
+        C.label(ctx, g.XC + g.TW + 26, g.Yl - 10, 'столбик стоит на теле: ' + silaT(m.ves), 17, 'rgb(' + ink + ')', 'left');
+      }
+      return;
+    }
+    /* давление сверх атмосферного на дно и на крышку, одной шкалой */
+    var KA = 55 / 1e5, pd = sc.P(0, 0, 0) - P_ATM, pk = sc.P(0, B.H, 0) - P_ATM;
+    [-0.21, -0.08, 0.08, 0.21].forEach(function (x) {
+      var X = g.XC + x * g.K;
+      strelka(ctx, X, g.Y0 - 4 - pd * KA, X, g.Y0 - 4, ORANGE, 3);
+    });
+    [-0.22, -0.11, 0.11, 0.22].forEach(function (x) {
+      var X = g.XC + x * g.K;
+      strelka(ctx, X, g.Yl + 4 + pk * KA, X, g.Yl + 4, ORANGE, 3);
+    });
+  }
+
+  function risRazgon(ctx, m, g, ink, mut) {
+    var R = RAZGON, p, a = m.sc.a;
+    ctx.beginPath(); p = g.to(-R.hw, R.H); ctx.moveTo(p[0], p[1]);
+    p = g.to(-R.hw, 0); ctx.lineTo(p[0], p[1]); p = g.to(R.hw, 0); ctx.lineTo(p[0], p[1]);
+    p = g.to(R.hw, R.H); ctx.lineTo(p[0], p[1]); ctx.stroke();
+    /* тележка и земля */
+    var L0 = g.to(-R.hw, 0), L1 = g.to(R.hw, 0);
+    ctx.lineWidth = 2;
+    [L0[0] + 45, L1[0] - 45].forEach(function (X) { ctx.beginPath(); ctx.arc(X, L0[1] + 14, 11, 0, 6.283); ctx.stroke(); });
+    ctx.strokeStyle = 'rgba(' + ink + ',.35)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(40, L0[1] + 26); ctx.lineTo(560, L0[1] + 26); ctx.stroke();
+    ctx.beginPath();
+    for (var X = 46; X < 560; X += 18) { ctx.moveTo(X, L0[1] + 26); ctx.lineTo(X - 9, L0[1] + 35); }
+    ctx.stroke();
+    /* скорость и ускорение сосуда относительно земли */
+    var Xa = L1[0] + 24, Yv = g.to(0, 1.25)[1], Ya = g.to(0, 1.0)[1];
+    strelka(ctx, Xa, Yv, Xa + 60, Yv, 'rgb(' + ink + ')', 2.4);
+    C.label(ctx, Xa, Yv - 14, 'сосуд едет', 17, 'rgb(' + mut + ')', 'left');
+    if (Math.abs(a) > 1e-9) strelka(ctx, a > 0 ? Xa : Xa + 60, Ya, (a > 0 ? Xa : Xa + 60) + a * 12, Ya, GREEN, 3);
+    C.label(ctx, Xa, Ya + 30, 'a = ' + num(a, 1) + ' м/с²', 17, 'rgb(' + ink + ')', 'left');
+    C.label(ctx, Xa, Ya + 52, 'в системе земли', 17, 'rgb(' + mut + ')', 'left');
+  }
+
+  function risVrash(ctx, m, g, ink, mut) {
+    var R = VRASH, sc = m.sc, p;
+    ctx.beginPath(); p = g.to(-R.R, R.H); ctx.moveTo(p[0], p[1]);
+    p = g.to(-R.R, 0); ctx.lineTo(p[0], p[1]); p = g.to(R.R, 0); ctx.lineTo(p[0], p[1]);
+    p = g.to(R.R, R.H); ctx.lineTo(p[0], p[1]); ctx.stroke();
+    /* ось */
+    ctx.save(); ctx.setLineDash([8, 7]); ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1.4;
+    p = g.to(0, R.H + 0.004); ctx.beginPath(); ctx.moveTo(p[0], p[1]); p = g.to(0, -0.003); ctx.lineTo(p[0], p[1]); ctx.stroke();
+    ctx.restore();
+    /* подъём у стенки */
+    var Pa = g.to(R.R, poverhnost(sc, R.R)), Pb = g.to(0, poverhnost(sc, 0));
+    ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(Pb[0], Pb[1]); ctx.lineTo(Pa[0] + 26, Pb[1]); ctx.moveTo(Pa[0] + 6, Pa[1]); ctx.lineTo(Pa[0] + 26, Pa[1]); ctx.stroke();
+    if (sc.rise > 0.002) strelka(ctx, Pa[0] + 20, Pb[1], Pa[0] + 20, Pa[1], 'rgb(' + ink + ')', 1.6);
+    C.label(ctx, Pa[0] + 32, (Pa[1] + Pb[1]) / 2 + 6, num(sc.rise * 100, 2) + ' см', 17, 'rgb(' + ink + ')', 'left');
+    C.label(ctx, g.XC, g.Y0 + 24, 'чашка радиусом 4 см, разрез по оси', 17, 'rgb(' + mut + ')', 'center');
+    /* вид сверху: чашка вращается, разрез вращается вместе с ней */
+    var cx = 540, cy = 96, rr = 56, k = rr / R.R, ph = st.phi;
+    ctx.strokeStyle = 'rgba(' + ink + ',.85)'; ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.arc(cx, cy, rr, 0, 6.283); ctx.stroke();
+    ctx.save(); ctx.setLineDash([6, 5]); ctx.strokeStyle = 'rgba(' + ink + ',.45)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(cx - rr * Math.cos(ph), cy + rr * Math.sin(ph)); ctx.lineTo(cx + rr * Math.cos(ph), cy - rr * Math.sin(ph)); ctx.stroke();
+    ctx.restore();
+    if (m.telo) {
+      ctx.save(); ctx.translate(cx + VRASH.xc * k * Math.cos(ph), cy - VRASH.xc * k * Math.sin(ph)); ctx.rotate(-ph);
+      ctx.fillStyle = TELO_FILL; ctx.strokeStyle = KANT; ctx.lineWidth = 1.2;
+      var hb = VRASH.b * k / 2; ctx.fillRect(-hb, -hb, 2 * hb, 2 * hb); ctx.strokeRect(-hb, -hb, 2 * hb, 2 * hb);
+      ctx.restore();
+    }
+    if (sc.n > 0) {
+      ctx.strokeStyle = 'rgba(' + ink + ',.7)'; ctx.lineWidth = 1.8;
+      ctx.beginPath(); ctx.arc(cx, cy, rr + 10, -0.3, -1.6, true); ctx.stroke();
+      var ex = cx + (rr + 10) * Math.cos(-1.6), ey = cy + (rr + 10) * Math.sin(-1.6);
+      ctx.fillStyle = 'rgba(' + ink + ',.7)';
+      ctx.beginPath(); ctx.moveTo(ex - 8, ey); ctx.lineTo(ex + 2, ey - 5); ctx.lineTo(ex + 2, ey + 5); ctx.closePath(); ctx.fill();
+    }
+    C.label(ctx, cx, cy + rr + 28, 'вид сверху', 17, 'rgb(' + mut + ')', 'center');
+  }
+
+  function risTelo(ctx, m, g, ink, mut) {
+    var T = m.telo, sc = m.sc, n = T.poly.length, i, j;
+    ctx.beginPath();
+    T.poly.forEach(function (pp, k) { var s = g.to(pp[0], pp[1]); if (k) ctx.lineTo(s[0], s[1]); else ctx.moveTo(s[0], s[1]); });
+    ctx.closePath();
+    ctx.fillStyle = TELO_FILL; ctx.fill();
+    ctx.strokeStyle = KANT; ctx.lineWidth = 2; ctx.stroke();
+    /* давление сверх атмосферного на мокрых гранях, по нормали внутрь */
+    var pm = 1e-12;
+    for (i = 0; i < n; i++) pm = Math.max(pm, sc.P(T.poly[i][0], T.poly[i][1], 0) - P_ATM);
+    var dlinaMax = m.vk === 'vrashchenie' ? 30 : 34;
+    for (i = 0; i < n; i++) {
+      var p = T.poly[i], q = T.poly[(i + 1) % n], dx = q[0] - p[0], dy = q[1] - p[1], len = Math.hypot(dx, dy);
+      if (T.ySuho != null && Math.abs(p[1] - T.ySuho) < 1e-12 && Math.abs(q[1] - T.ySuho) < 1e-12) continue;
+      var nx = dy / len, ny = -dx / len, kol = Math.max(2, Math.round(len * g.K / 22));
+      for (j = 0; j < kol; j++) {
+        var s = (j + 0.5) / kol, x = p[0] + s * dx, y = p[1] + s * dy;
+        var L = (sc.P(x, y, 0) - P_ATM) / pm * dlinaMax, e = g.to(x, y);
+        strelka(ctx, e[0] + nx * (L + 2), e[1] - ny * (L + 2), e[0] + nx * 2, e[1] - ny * 2, ORANGE, 1.8);
+      }
+    }
+    /* итог: сила давления на тело */
+    var c = g.to(T.c[0], T.c[1]), F = T.F, Fm = Math.hypot(F[0], F[1]);
+    if (T.ySuho != null) {
+      /* прижатое тело давят сверху: стрелка упирается в верхнюю грань */
+      var verh = g.to(T.c[0], vysota(T.poly))[1];
+      strelka(ctx, c[0], verh - 110, c[0], verh - 2, ORANGE, 4.2);
+      C.label(ctx, c[0] + 12, verh - 90, silaT(Fm) + ' вниз', 17, 'rgb(' + ink + ')', 'left');
+      return;
+    }
+    var Lr = 76;
+    if (Fm > 0) strelka(ctx, c[0], c[1], c[0] + F[0] / Fm * Lr, c[1] - F[1] / Fm * Lr, ORANGE, 4.2);
+    /* подпись у конца стрелки, с той стороны, куда она клонится */
+    var tip = [c[0] + F[0] / Fm * Lr, c[1] - F[1] / Fm * Lr], vlevo = F[0] < -1e-9 * Fm;
+    C.label(ctx, tip[0] + (vlevo ? -12 : 12), tip[1] + 6, silaT(Fm), 17, 'rgb(' + ink + ')', vlevo ? 'right' : 'left');
+  }
+
+  function risZond(ctx, m, g, ink, mut) {
+    var z = zondTek(m), s = g.to(z.x, z.y), KA = m.vk === 'vrashchenie' ? 4 : m.vk === 'razgon' ? 7 : 5;
+    var h = 12;
+    ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 3.2; ctx.strokeRect(s[0] - h, s[1] - h, 2 * h, 2 * h);
+    ctx.strokeStyle = KANT; ctx.lineWidth = 1.4; ctx.strokeRect(s[0] - h, s[1] - h, 2 * h, 2 * h);
+    var fx = -z.grad[0] / RHO, fy = -z.grad[1] / RHO;              /* сила давления на единицу массы */
+    strelka(ctx, s[0], s[1], s[0], s[1] + G * KA, RED, 2.8);
+    strelka(ctx, s[0], s[1], s[0] + fx * KA, s[1] - fy * KA, ORANGE, 2.8);
+    var ax = z.aKub[0], ay = z.aKub[1];
+    if (Math.hypot(ax, ay) * KA > 5) {
+      ctx.save(); ctx.setLineDash([5, 4]);
+      strelka(ctx, s[0], s[1], s[0] + ax * KA, s[1] - ay * KA, GREEN, 2.6);
+      ctx.restore();
+    }
+  }
+
+  function risShkala(ctx, m, ink, mut) {
+    if (m.vk === 'bochka' && m.sc.tverdoe) return;
+    var n = 60, hh = (BAR.y1 - BAR.y0) / n;
+    for (var i = 0; i < n; i++) {
+      var c = cvet(1 - (i + 0.5) / n);
+      ctx.fillStyle = 'rgb(' + Math.round(c[0]) + ',' + Math.round(c[1]) + ',' + Math.round(c[2]) + ')';
+      ctx.fillRect(BAR.x, BAR.y0 + i * hh, BAR.w, hh + 0.6);
+    }
+    ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var p = m.shag; p < m.pMax - 1e-9; p += m.shag) {
+      var Y = BAR.y1 - p / m.pMax * (BAR.y1 - BAR.y0); ctx.moveTo(BAR.x + BAR.w, Y); ctx.lineTo(BAR.x + BAR.w + 5, Y);
+    }
+    ctx.stroke();
+    C.label(ctx, BAR.x, BAR.y0 - 14, 'P − P₀', 17, 'rgb(' + mut + ')', 'left');
+    C.label(ctx, BAR.x + BAR.w + 8, BAR.y0 + 12, davlT(m.pMax), 17, 'rgb(' + ink + ')', 'left');
+    C.label(ctx, BAR.x + BAR.w + 8, BAR.y1, '0', 17, 'rgb(' + ink + ')', 'left');
+    C.label(ctx, BAR.x, BAR.y1 + 26, 'изобары', 17, 'rgb(' + mut + ')', 'left');
+    C.label(ctx, BAR.x, BAR.y1 + 48, 'через ' + shagT(m.shag), 17, 'rgb(' + mut + ')', 'left');
+  }
+
+  function tabloStroki(m) {
+    var z = zondTek(m), out = [], lab = [], sc = m.sc;
+    var tochka = m.vk === 'bochka' && sc.tverdoe ? '—' : davlT(z.gauge);
+    out.push(['В ТОЧКЕ, СВЕРХ P₀', tochka, 'rgb(INK)']);
+    if (m.vk === 'bochka') {
+      out.push(['ДНУ ДОБАВИЛОСЬ', silaT(m.dDno), ORANGE]);
+      out.push(['КРЫШКЕ СНИЗУ', silaT(m.dKryshka), ORANGE]);
+      out.push(['ВЕС ДОЛИТОГО', silaT(m.ves), 'rgb(' + CYAN + ')']);
+      if (!sc.tverdoe) {
+        var kr = Math.round(m.dDno / Math.max(m.ves, 1e-30));
+        if (m.ves > 0) lab.push('дну в ' + num(kr, 0) + ' ' + C.plural(kr, 'раз', 'раза', 'раз') + ' больше веса');
+        lab.push('твёрдое: дну ' + silaT(m.ves) + ', крышке 0');
+      } else lab.push('вода дала бы дну ' + silaT(m.dDnoVoda));
+    } else if (m.vk === 'razgon') {
+      out.push(['НАКЛОН ПОВЕРХНОСТИ', ugolT(m.tilt), 'rgb(' + CYAN + ')']);
+      if (m.telo) {
+        var F = m.telo.F;
+        out.push(['СИЛА НА КУБИК', silaT(Math.hypot(F[0], F[1])), ORANGE]);
+        out.push(['ОТ ВЕРТИКАЛИ', ugolT(Math.atan2(F[0], F[1])) + (Math.abs(F[0]) < 1e-9 ? '' : F[0] > 0 ? ' вперёд' : ' назад'), ORANGE]);
+        lab.push('ρV·√(a² + g²) = ' + silaT(Math.hypot(m.telo.Fexp[0], m.telo.Fexp[1])));
+      }
+    } else if (m.vk === 'vrashchenie') {
+      out.push(['КРАЙ ВЫШЕ ОСИ', num(sc.rise * 100, 2) + ' см', 'rgb(' + CYAN + ')']);
+      if (m.telo) {
+        out.push(['К ОСИ', silaT(-m.telo.F[0]), ORANGE]);
+        out.push(['ВВЕРХ', silaT(m.telo.F[1]), ORANGE]);
+        lab.push('ρVω²r = ' + silaT(-m.telo.Fexp[0]) + ', ρgV = ' + silaT(m.telo.Fexp[1]));
+      }
+    } else {
+      var T = m.telo, Fy = T.F[1];
+      out.push(['ИНТЕГРАЛ ДАВЛЕНИЯ', silaT(Math.abs(Fy)) + (Fy >= 0 ? ' вверх' : ' вниз'), ORANGE]);
+      if (T.ySuho != null) {
+        out.push(['ОТ АТМОСФЕРЫ', silaT(T.atm) + ' вниз', 'rgb(INK)']);
+        lab.push('ρgV − P(дна)·S: ' + silaT(-T.Fexp[1]) + ' вниз');
+      } else {
+        out.push(['ρgV', silaT(RHO * G * T.V), 'rgb(' + CYAN + ')']);
+        lab.push('по горизонтали ' + silaT(Math.abs(T.F[0])));
+      }
+    }
+    return { out: out, lab: lab };
+  }
+
+  function risTablo(ctx, m, ink, mut) {
+    var t = tabloStroki(m);
+    t.out.forEach(function (r, i) {
+      C.readout(ctx, RX, 24 + 76 * i, r[0], r[1], r[2].replace('INK', ink));
+    });
+    var y = 24 + 76 * t.out.length + 6;
+    t.lab.forEach(function (s, i) { C.label(ctx, RX, y + 22 * i, s, 17, 'rgb(' + mut + ')', 'right'); });
+    if (m.vk === 'bochka' && m.sc.tverdoe) return;
+    /* подписи стрелок кубика под курсором */
+    var leg = [[ORANGE, 'давление на кубик'], [RED, 'вес'], [GREEN, 'сумма, ma']];
+    leg.forEach(function (l, i) {
+      var Y = 386 + 21 * i;
+      ctx.strokeStyle = l[0]; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(RX - 180, Y - 6); ctx.lineTo(RX - 156, Y - 6); ctx.stroke();
+      C.label(ctx, RX - 148, Y, l[1], 17, 'rgb(' + mut + ')', 'left');
+    });
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── курсор: давление в точке ── */
+  function naZond(e) {
+    var cv = e.currentTarget, r = cv.getBoundingClientRect();
+    var s = Math.min(r.width / W, r.height / HGT);
+    var X = (e.clientX - r.left - (r.width - W * s) / 2) / s, Y = (e.clientY - r.top - (r.height - HGT * s) / 2) / s;
+    var m = model(), q = GEOM[m.vk].inv(X, Y);
+    if (!m.sc.vnutri(q[0], q[1])) return;
+    if (m.telo && vnutriMnogougolnika(m.telo.poly, q[0], q[1])) return;
+    st.zondy[m.vk] = q;
+    obnovit();
+  }
+  function vnutriMnogougolnika(poly, x, y) {
+    var ins = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      var a = poly[i], b = poly[j];
+      if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) ins = !ins;
+    }
+    return ins;
+  }
+
+  /* ── показания для автопроверки ── */
+  function pokaz() {
+    var m = model(), sc = m.sc, z = zondTek(m), o = { mode: m.vk, pMax: m.pMax, isobarStep: m.shag,
+      probe: { x: z.x, y: z.y, P: z.P, gauge: z.gauge, aCube: z.aKub, aVessel: z.aSos } };
+    if (m.vk === 'bochka') {
+      Object.assign(o, { V: sc.V, h: sc.h, solid: sc.tverdoe, filling: st.nalivaem,
+        pBottomGauge: sc.tverdoe ? null : sc.P(0, 0, 0) - P_ATM,
+        Fbottom: m.dno, Flid: m.kryshka, dFbottom: m.dDno, dFlid: m.dKryshka,
+        dFbottomWater: m.dDnoVoda, dFlidWater: m.dKryshkaVoda, wAdded: m.ves, ratio: m.ves > 0 ? m.dDno / m.ves : null,
+        compression: GEOM.bochka.szhatie });
+    } else if (m.vk === 'razgon') {
+      Object.assign(o, { a: sc.a, surfaceTilt: m.tilt * 180 / Math.PI,
+        surfaceDrop: poverhnost(sc, -RAZGON.hw) - poverhnost(sc, RAZGON.hw) });
+    } else if (m.vk === 'vrashchenie') {
+      Object.assign(o, { n: sc.n, omega: sc.omega, y0: sc.y0, y0Formula: sc.y0Formula, rise: sc.rise, riseFormula: sc.riseFormula, phi: st.phi });
+    } else {
+      Object.assign(o, { shape: st.forma, depth: st.glub, onBottom: st.prizhat });
+    }
+    if (m.telo) {
+      var T = m.telo;
+      Object.assign(o, { body: m.vk === 'telo' ? st.forma : 'kub', F: T.F, Fexpected: T.Fexp, Ferr: T.err, Vbody: T.V,
+        angle: Math.atan2(T.F[0], T.F[1]) * 180 / Math.PI, Fatm: T.ySuho != null ? T.atm : null, centroid: T.c });
+    } else o.body = null;
+    return o;
+  }
+  try { Object.defineProperty(window, '__demoState', { configurable: true, get: pokaz }); } catch (e) {}
+  window.__demoSet = function (q) {
+    q = q || {};
+    if (q.vkladka && PO_ID[q.vkladka]) st.vk = q.vkladka;
+    if (q.V != null) { st.V = C.clamp(q.V, 0, LITR); st.nalivaem = false; }
+    if (q.solid != null) st.tverdoe = !!q.solid;
+    if (q.a != null) st.a = q.a;
+    if (q.n != null) st.n = q.n;
+    if (q.body != null) { if (st.vk === 'razgon') st.teloRz = !!q.body; if (st.vk === 'vrashchenie') st.teloVr = !!q.body; }
+    if (q.shape) st.forma = q.shape;
+    if (q.depth != null) st.glub = q.depth;
+    if (q.onBottom != null) st.prizhat = !!q.onBottom;
+    if (q.probe) st.zondy[st.vk] = q.probe.slice();
+    obnovit();
+    return true;
+  };
+  window.__demoAction = function (name) { if (name === 'nalit') nalit(); return true; };
+  window.__demoModel = { scenaBochka: scenaBochka, scenaRazgon: scenaRazgon, scenaVrashchenie: scenaVrashchenie,
+    scenaSosud: scenaSosud, silaNaTelo: silaNaTelo, silaOzhid: silaOzhid, silyBochki: silyBochki, zond: zond,
+    poverhnost: poverhnost, kvadrat: kvadrat, sdvig: sdvig, ploshchad: ploshchad, centr: centr, FORMY: FORMY,
+    GEOM: GEOM, BOCHKA: BOCHKA, RAZGON: RAZGON, VRASH: VRASH, SOSUD: SOSUD, P_ATM: P_ATM, RHO: RHO, G: G, W: W, HGT: HGT };
+
+  /* ── ручки ── */
+  function vybrat(id) { st.vk = id; st.nalivaem = false; obnovit(); }
+  function setV(v) { st.V = Math.round(v / 10) * 10 * 1e-6; st.nalivaem = false; obnovit(); }
+  function nalit() { st.V = 0; st.nalivaem = true; st.tUi = 0; obnovit(); }
+  function setTverd(b) { st.tverdoe = b; obnovit(); }
+  function setA(v) { st.a = Math.round(v * 10) / 10; obnovit(); }
+  function setN(v) { st.n = Math.round(v * 20) / 20; obnovit(); }
+  function setTeloRz(b) { st.teloRz = b; obnovit(); }
+  function setTeloVr(b) { st.teloVr = b; obnovit(); }
+  function setForma(f) { st.forma = f; st.glub = Math.min(st.glub, glubMax()); obnovit(); }
+  function glubMax() { return Math.round((SOSUD.h0 - vysota(FORMY[st.forma])) * 100) / 100; }
+  function setGlub(v) { st.glub = Math.min(glubMax(), Math.round(v * 100) / 100); st.prizhat = false; obnovit(); }
+  function setPrizhat() { st.prizhat = !st.prizhat; obnovit(); }
+
+  /* ── строка показаний ── */
+  function slova() {
+    var A = function (t) { return '<span class="accent">' + t + '</span>'; };
+    var m = model(), sc = m.sc, s;
+    if (m.vk === 'bochka') {
+      var ml = Math.round(sc.V * 1e6);
+      if (sc.tverdoe) {
+        s = 'В бочке тело той же формы и того же веса, что вода, и оно свободно стоит на дне. ';
+        s += ml > 0 ? 'Столбик в трубке стоит на теле под ним, как гиря на столе: дну добавился его вес, ' + A(silaT(m.ves)) + ', а крышке ничего. ' : '';
+        s += 'Давления, одного во все стороны, у твёрдого тела нет: оно держит сдвиг. Вода на том же месте дала бы дну ' + silaT(m.dDnoVoda) + '.';
+        return s;
+      }
+      if (ml === 0) return 'Бочка с водой закрыта крышкой, трубка пуста, и давление под крышкой атмосферное. У дна оно больше на ' + davlT(sc.P(0, 0, 0) - P_ATM) + ', сколько даёт столб в 52 см. Кнопка «Налить литр» наливает воду в трубку.';
+      s = 'В трубке сечением 1 см² ' + ml + ' мл воды, столб ' + num(sc.h, 2) + ' м. Давление в покоящейся воде зависит только от глубины, считая от верха столба, и во всей бочке выросло на ' + A(davlT(RHO * G * sc.h)) + '. ';
+      s += 'Дну это добавило ' + A(silaT(m.dDno)) + ', крышке снизу ' + silaT(m.dKryshka) + ', а долитая вода весит ' + silaT(m.ves) + '.';
+      if (st.nalivaem) s += ' Воду наливают медленно, и в каждый миг она покоится.';
+      return s;
+    }
+    if (m.vk === 'razgon') {
+      var a = sc.a;
+      var zad = a > 0 ? 'задней' : 'передней';
+      if (Math.abs(a) < 1e-9) s = 'Сосуд едет без ускорения. Давление растёт только с глубиной, и поверхность горизонтальна. ';
+      else {
+        s = 'Сосуд едет вправо и ' + (a > 0 ? 'разгоняется' : 'тормозит') + ' с ускорением ' + A(num(Math.abs(a), 1) + ' м/с²') + '. Считаем в системе земли: каждый кубик воды едет с тем же ускорением, и разгоняет его перепад давления, поэтому давление растёт к ' + zad + ' стенке. ';
+        s += 'Поверхность перпендикулярна вектору <b>g</b> − <b>a</b> и наклонена на ' + A(ugolT(m.tilt)) + ', выше у ' + zad + ' стенки. ';
+      }
+      if (m.telo) {
+        var F = m.telo.F, Fm = Math.hypot(F[0], F[1]);
+        s += 'Интеграл давления по граням кубика 10 см даёт ' + A(silaT(Fm)) + (Math.abs(F[0]) > 1e-9 ? ' под углом ' + ugolT(Math.atan2(F[0], F[1])) + ' от вертикали ' + (F[0] > 0 ? 'вперёд' : 'назад') + ', как ρV(<b>a</b> − <b>g</b>): пузырёк в таком сосуде уходит ' + (F[0] > 0 ? 'вперёд' : 'назад') + '.' : ' вверх, как ρgV.');
+      }
+      return s;
+    }
+    if (m.vk === 'vrashchenie') {
+      if (sc.n <= 0) return 'Чашка радиусом 4 см стоит, поверхность горизонтальна. Ползунок раскручивает её вместе с чаем.';
+      s = 'Чашка радиусом 4 см вращается, ' + A(num(sc.n, 2) + ' об/с') + '. Кубик чая на расстоянии r от оси идёт по окружности, и к оси его толкает перепад давления, ∂P/∂r = ρω²r; сил инерции в счёте нет. ';
+      s += 'Поверхность поднимается к стенке параболой и у стенки стоит на ' + A(num(sc.rise * 100, 2) + ' см') + ' выше, чем на оси. ';
+      if (m.telo) s += 'На кубик 1 см в 2 см от оси давление даёт ' + silaT(-m.telo.F[0]) + ' к оси и ' + silaT(m.telo.F[1]) + ' вверх: лёгкое тело уходит к оси.';
+      return s;
+    }
+    var T = m.telo, imya = st.forma === 'kub' ? 'Кубик 10 см' : 'Шестиугольник той же площади сечения, призма толщиной 10 см,';
+    if (T.ySuho != null)
+      return imya + ' прижат ко дну без зазора, и снизу воды нет. Интеграл по мокрым граням даёт ' + A(silaT(-T.F[1]) + ' вниз') + ', из них ' + silaT(T.atm) + ' даёт атмосфера над водой. Чтобы вернуть 9,81 Н вверх, под тело нужен хотя бы тонкий слой воды.';
+    s = imya + ' в покоящейся воде' + (st.glub >= glubMax() - 1e-9 ? ', лежит на дне, и под ним вода' : ', верх на глубине ' + num(st.glub, 2) + ' м') + '. ';
+    s += 'Интеграл давления по граням даёт ' + A(silaT(T.F[1]) + ' вверх') + ', сколько весит вытесненная вода, ρgV = ' + silaT(RHO * G * T.V) + '. ';
+    s += st.forma === 'kub' ? 'Нижнюю грань давят сильнее верхней, боковые силы гасятся попарно.' : 'Боковые грани наклонены, а горизонтальные части сил всё равно гасятся.';
+    return s;
+  }
+
+  var vk = st.vk;
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Опыт:">
+          ${VKLADKI.map(function (v) { return html`
+            <${C.Btn} key=${v.id} active=${vk === v.id} onClick=${function () { vybrat(v.id); }}>${v.label}<//>`; })}
+        <//>
+        ${vk === 'bochka' ? html`
+          <${C.Slider} label="В трубке:" min=${0} max=${1000} step=${10} value=${Math.round(st.V * 1e6)}
+                       onChange=${function (v) { setV(v); }} display=${Math.round(st.V * 1e6) + ' мл'} />
+          <${C.Group}>
+            <${C.Btn} action=${true} disabled=${st.nalivaem} onClick=${nalit}>Налить литр<//>
+          <//>
+          <${C.Group} label="В бочке:">
+            <${C.Btn} active=${!st.tverdoe} onClick=${function () { setTverd(false); }}>вода<//>
+            <${C.Btn} active=${st.tverdoe} onClick=${function () { setTverd(true); }}>твёрдое тело<//>
+          <//>` : null}
+        ${vk === 'razgon' ? html`
+          <${C.Slider} label="Ускорение:" min=${-5} max=${5} step=${0.1} value=${st.a}
+                       onChange=${setA} display=${num(st.a, 1) + ' м/с²'} />
+          <${C.Group} label="Тело:">
+            <${C.Btn} active=${!st.teloRz} onClick=${function () { setTeloRz(false); }}>нет<//>
+            <${C.Btn} active=${st.teloRz} onClick=${function () { setTeloRz(true); }}>кубик<//>
+          <//>` : null}
+        ${vk === 'vrashchenie' ? html`
+          <${C.Slider} label="Обороты:" min=${0} max=${4} step=${0.05} value=${st.n}
+                       onChange=${setN} display=${num(st.n, 2) + ' об/с'} />
+          <${C.Group} label="Тело:">
+            <${C.Btn} active=${!st.teloVr} onClick=${function () { setTeloVr(false); }}>нет<//>
+            <${C.Btn} active=${st.teloVr} onClick=${function () { setTeloVr(true); }}>кубик<//>
+          <//>` : null}
+        ${vk === 'telo' ? html`
+          <${C.Group} label="Тело:">
+            <${C.Btn} active=${st.forma === 'kub'} onClick=${function () { setForma('kub'); }}>кубик<//>
+            <${C.Btn} active=${st.forma === 'shest'} onClick=${function () { setForma('shest'); }}>шестиугольник<//>
+          <//>
+          <${C.Slider} label="Глубина:" min=${0.05} max=${glubMax()} step=${0.01} value=${st.glub}
+                       onChange=${setGlub} display=${num(st.glub, 2) + ' м'} />
+          <${C.Group}>
+            <${C.Btn} active=${st.prizhat} onClick=${setPrizhat}>Прижать ко дну<//>
+          <//>` : null}
+      </div>
+      <canvas class="stage" ref=${ref} onPointerMove=${naZond} onPointerDown=${naZond}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(PoleDavleniya);
+</script>
+</body>
+</html>
