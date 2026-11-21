@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Двигатель Сциларда</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-10/">&larr; Неделя 10</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=dvigatel-scilarda"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Мост десятой недели «Запретим демону вечный двигатель второго рода»
+   (блок vechnyj-dvigatel-demona; бриф briefs/proizvodstvo10.md, «Демки»,
+   исполнитель 3; карточка 8 описи briefs/lekciya10_demki_minuty.md §1.4;
+   опись мостов briefs/lekciya10_mosty_ml.md, §1 и §5; решения автора
+   briefs/lekciya10_resheniya_ramki.md, п. 7 и 9). Карточка ставила режим
+   в «Поршень и молекулы»; бриф производства сделал демку отдельной и
+   добавил в неё стирание памяти, поэтому счёт свой: движок demo-gaz.js
+   умеет только поршень, который уходит, а стиранию нужен поршень, который
+   сжимает, и молекула, которая живёт от цикла к циклу.
+
+   МОДЕЛЬ. Одна молекула (масса 1) в ящике 2×1×1, kT = 1, √⟨v²⟩ = √3.
+   Правила стенок те же, что в demo-gaz.js. Неподвижные стенки тёплые:
+   отражают диффузно, нормальная составляющая скорости с весом потока
+   √(−2 ln ξ), касательные по Гауссу, и отданная ими энергия идёт в
+   теплоту Q. Перегородка и поршень зеркальные: удар упругий в системе
+   поршня, v_x′ = 2u − v_x, поршень получает работу ½(v_x² − v_x′²).
+   Молекула летит прямо от удара к удару, время до ближайшего удара
+   считается точно; шага по времени нет.
+
+   ЦИКЛ, четыре фазы, как на рисунке ris-dvigatel-scilarda.
+   1. Молекула во всём ящике.
+   2. Демон вставляет перегородку посередине и смотрит, в какой половине
+      молекула. Бит он пишет в память: ячейку с одной молекулой, тоже
+      2×1×1 при той же kT, левая половина значит 0, правая 1. Чистая ячейка
+      стоит в 0; бит 1 пишется зеркальным переносом молекулы ячейки в
+      правую половину, x → 2 − x, v_x → −v_x, энергия не меняется.
+      Запись демка делает даром: это допущение довода (Беннет), и спор о
+      нём упомянут в блоке моста.
+   3. Перегородка становится поршнем и уходит со скоростью u к пустой
+      стороне, пока молекула снова не займёт весь ящик. Работу молекула
+      отдаёт поршню, энергию берёт у тёплых стенок: это машина с
+      единственным резервуаром. Обратимая изотерма дала бы kT ln 2.
+   4. Стирание (ручка «стирать»): у ячейки памяти убирают перегородку, и
+      поршень с правого края сжимает её до половины с той же скоростью u,
+      так что молекула кончает в левой половине при любом записанном
+      бите. Работу над ячейкой поршень отдаёт теплом стенкам; обратимое
+      сжатие стоило бы kT ln 2. Без стирания демон откладывает ячейку с
+      битом на ленту и берёт чистую: лента растёт на бит за цикл.
+
+   ЧТО ПОКАЗАНО. Средняя по циклам работа машины, средняя цена стирания
+   и итог за цикл, с ошибкой среднего; по циклам точки и скользящие
+   средние против kT ln 2 = 0,693. Будь стирание в среднем дешевле kT ln 2,
+   медленная машина вместе с ним давала бы работу из тепла одного
+   резервуара; в демке итог за цикл не больше нуля, и к нулю он подходит
+   только при медленном поршне.
+
+   ЭКРАН. Ход поршня идёт около 3,5 секунды экрана, но не быстрее 0,1 и
+   не медленнее 60 единиц времени модели в секунду; фазы 1 и 2 занимают
+   0,7 и 0,9 секунды экрана. На счёт это не влияет: в фазах 1 и 2 поршни
+   стоят и работы нет. «+100 циклов» считает сто циклов сразу.
+
+   ЧИСЛА (30.10, этот же код в node, вырезкой от «var LN2» до «сцена»,
+   и hcheck на порту 49954; отчёт briefs/proizvodstvo10_demki-3_REPORT.md).
+   Со стиранием, по 10 000 циклов при двух зёрнах (11 и 22), в kT за
+   цикл; работа машины, цена стирания, итог:
+       u/√⟨v²⟩ 0,003: 0,685 и 0,688; 0,698 и 0,696; −0,013 и −0,008
+               0,01:  0,674 и 0,677; 0,711 и 0,710; −0,038 и −0,033
+               0,03:  0,643 и 0,644; 0,741 и 0,754; −0,098 и −0,110
+               0,1:   0,535 и 0,540; 0,886 и 0,885; −0,351 и −0,345
+               0,3:   0,302 и 0,296; 1,38 и 1,38;   −1,08 и −1,09
+               1:     0,019 и 0,018; 4,69 и 4,65
+               3:     0 (молекула поршень не догоняет); 28,9 и 28,8.
+   Ошибка среднего от 0,001 при 0,003 до 0,3 при 3. Машина подходит к
+   kT ln 2 = 0,6931 снизу, стирание сверху, итог за цикл всюду меньше
+   нуля и к нулю подходит только при медленном поршне. Недобор машины и
+   избыток стирания при u от 0,01 до 0,1 убывают примерно как 1/τ, τ =
+   1/u длительность хода: произведение на τ 0,9–1,1. Разброс работы от
+   цикла к циклу 0,10; 0,18; 0,31; 0,51; 0,65 kT при 0,003; 0,01; 0,03;
+   0,1; 0,3, поэтому при 0,01 среднее встаёт в ±0,05 kT за 13–14 циклов.
+   Теплота от стенок машины за цикл равна работе до изменения энергии
+   молекулы (0,6736 против 0,6736 при 0,01), стенки памяти получают теплом
+   цену стирания. Учёт энергии E − E₀ = Q − W у обеих молекул держится до
+   4·10⁻¹⁴ от прошедшей теплоты. Без стирания при 0,01: 0,676 ± 0,002 за
+   цикл и 10 000 бит на ленте (машина та же, память копится).
+   Сверка с движком demo-gaz.js: протокол описи (gaz10.py, часть Д, каждый
+   ход новая молекула со скоростью √3 в левой половине, 4000 ходов) этим
+   счётом и движком: 0,336 и 0,330; 0,557 и 0,552; 0,643 и 0,649; 0,678 и
+   0,675; 0,692 и 0,689 при 0,3; 0,1; 0,03; 0,01; 0,003, ошибка среднего
+   0,010–0,002; разброс 0,65; 0,51; 0,31; 0,19; 0,10 у обоих. Правила
+   стенок те же. Одномерный счёт описи мостов (mosty_ml_schet.py, § 3)
+   сходится к ln 2 так же, расширение снизу, сжатие сверху; там тёплая
+   одна стенка, здесь все неподвижные, и при той же длительности хода
+   (τ = 30 и 100 там, 58 здесь) здесь ближе к пределу.
+
+   АУДИТ 3 (30.10). А3-02: при 0,01 разрыв с kT ln 2 составляет
+   0,016–0,020 kT и на уровне 2σ встаёт за 450–500 циклов, а строка под
+   сценой утверждала «получает меньше» и «дороже» с первого цикла. Теперь
+   знак утверждается, когда среднее отстоит от kT ln 2 на две свои ошибки,
+   иначе сказано, что он тонет в разбросе; по одному циклу о средних и
+   итоге не судят; теплота от стенок печатается, когда вся работа не
+   меньше 10 kT. Проверка hcheck на портах 49971 и 49972 через
+   __demoSet, __demoCycles и текст строки: при 0,01 со стиранием
+   утверждение о машине после 10, 30, 100, 300, 500 циклов в 3, 5, 7, 13,
+   18 опытах из 40, после 1000 в 26 из 30, после 2000 в 29 из 30; при 0,3
+   после 10 циклов в 21 из 40, после 30 в 33, после 100 во всех;
+   утверждения против своего среднего нет ни в одном опыте, теплота
+   отрицательной не печаталась. Отрицательный контроль: прежний код при
+   0,01 и зерне 11 после одного цикла писал «делает его дороже» при цене
+   стирания 0,668 < 0,693. Разброс работы при 0,01 за 10 000 циклов 0,183
+   и 0,185. А3-25: температура стенок названа T, а не kT; ползунок
+   подписан «Скорость поршня», единица √⟨v²⟩ стоит в показании, где нет
+   капса. Рейка при 1280 в два ряда, как и до правки; в один ряд она
+   теперь встаёт с ширины около 1390 вместо 1335.
+   АУДИТ 3, сверх списка, х3 (30.10, hcheck на порту 49978): при
+   1 ≤ u/√⟨v²⟩ < 3 строка писала «Поршень быстрее молекулы… и работы
+   нет», а работа за 2000 циклов со стиранием при зёрнах 11, 22, 33:
+   u = 1: 0,020; 0,017; 0,011 kT (ошибка 0,004–0,006); u = 1,2: 0,006;
+   0,001; 0,005; u = 1,5: 0; 0; 0,0006; u = 2 и 3: 0. При u = 1 поршень
+   идёт со скоростью √⟨v²⟩, а не быстрее молекулы. Порог 1 оставлен,
+   слова зависят от того, была ли работа: «Поршень уходит не медленнее
+   молекулы: догоняет она его, только когда летит к нему ещё быстрее, а
+   это редкость, и работы почти нет», а при нулевой работе за все циклы
+   «Поршень уходит быстрее молекулы, она его ни разу не догнала, и
+   работы нет». Счёт не менялся.
+   АУДИТ 3, круг 1, T1-03 (30.10, hcheck на порту 49990): в состоянии
+   первого клика колоды 61 (медленный, стирать, +100 циклов) строка
+   повторяла «в среднем» четыре раза и дважды кончала фразу хвостом
+   «тонет в разбросе». «В среднем» снято у чисел со знаком ±: «машина
+   дала 0,675 ± 0,018 kT работы за цикл», «стоит за цикл 0,710 ± 0,017
+   kT»; у общих фраз о конечной скорости оно осталось (А3-02: один цикл
+   может дать и больше kT ln 2). Если тонут оба знака, хвосты сведены в
+   одну фразу «Недобор машины и избыток стирания пока тонут в разбросе»,
+   и «Эта работа» стало «Работа стирания», чтобы ссылка не повисла.
+   Счёт и пороги прежние.
+   АУДИТ 3, круг 2 (30.10, hcheck на порту 49990). K2-S-08: память демона
+   на экране звалась ячейкой, а в главе, на рисунке и в колоде ящиком;
+   строки экрана теперь говорят «такой же ящик с одной молекулой»,
+   «4. Стирание: ящик памяти сжимают вдвое», «Стирание сжимает ящик
+   памяти вдвое» (внутренние комментарии и имена не менялись). K2-F-01:
+   предел Ландауэра держится в среднем, а при 0,01 почти половина
+   стираний дешевле kT ln 2 (node, 5000 циклов, зерно 777: 48,1 %,
+   машина выше kT ln 2 в 44,3 %); строка без стирания говорит «стирание
+   бита в среднем стоит не меньше kT ln 2», последняя фраза «Будь
+   стирание в среднем дешевле kT ln 2». K2-F-05: ошибка печатается с тем
+   же числом знаков, что её среднее (fmtKak): при u = 3 было «25,7 ±
+   2,965», стало «25,7 ± 3,0»; так же в показаниях под графиком. Счёт и
+   пороги прежние. */
+
+var LN2 = Math.log(2), VKV = Math.sqrt(3), L = 2;
+var U_MIN = 0.003, U_MAX = 3, U_SLOW = 0.01, U_FAST = 0.3;    /* в долях √⟨v²⟩ */
+var EKRAN_HOD = 3.5, EKRAN_VES = 0.7, EKRAN_PG = 0.9;          /* секунды экрана */
+var RATE_MIN = 0.1, RATE_MAX = 60;
+var SLED = 40, HIST = 10000;
+
+/* Датчик mulberry32, как в demo-gaz.js: прогон повторяется по зерну. */
+function rngMake(seed) {
+  var s = (seed >>> 0) || 1;
+  return function () {
+    s = (s + 0x6D2B79F5) >>> 0;
+    var q = s;
+    q = Math.imul(q ^ (q >>> 15), q | 1);
+    q ^= q + Math.imul(q ^ (q >>> 7), q | 61);
+    return ((q ^ (q >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function gaussMake(r) {
+  var spare = null;
+  return function () {
+    if (spare !== null) { var s0 = spare; spare = null; return s0; }
+    var a, b, q;
+    do { a = 2 * r() - 1; b = 2 * r() - 1; q = a * a + b * b; } while (q >= 1 || q === 0);
+    var f = Math.sqrt(-2 * Math.log(q) / q);
+    spare = b * f;
+    return a * f;
+  };
+}
+
+/* молекула с тепловой скоростью, равномерно в [x0, x1] по x */
+function molekula(Z, x0, x1) {
+  return { x: x0 + Z.rnd() * (x1 - x0), y: Z.rnd(), z: Z.rnd(), vx: Z.gauss(), vy: Z.gauss(), vz: Z.gauss() };
+}
+function energiya(m) { return 0.5 * (m.vx * m.vx + m.vy * m.vy + m.vz * m.vz); }
+/* граница по x: где она сейчас, её скорость, тёплая ли (тёплые стоят) */
+function gr(x, u, warm) { return { x: x, u: u, warm: warm }; }
+function svobodno() { return { lo: gr(0, 0, true), hi: gr(L, 0, true) }; }
+
+/* тёплая стенка: ось os (0 x, 1 y, 2 z), zn — знак нормали внутрь */
+function teplo(Z, m, os, zn) {
+  var vn = zn * Math.sqrt(-2 * Math.log(1 - Z.rnd())), t1 = Z.gauss(), t2 = Z.gauss();
+  if (os === 0) { m.vx = vn; m.vy = t1; m.vz = t2; }
+  else if (os === 1) { m.vy = vn; m.vx = t1; m.vz = t2; }
+  else { m.vz = vn; m.vx = t1; m.vy = t2; }
+}
+
+/* Молекула m между границами g.lo и g.hi по x и между 0 и 1 по y и z
+   летит время dt. uch.W — работа молекулы над поршнями, uch.Q — теплота
+   от тёплых стенок; sled — точки ударов для рисунка (или null). */
+function letet(Z, m, g, dt, uch, sled) {
+  var ost = dt, n = 0;
+  while (ost > 0 && n++ < 10000000) {
+    var t = Infinity, k = -1, tw, r;
+    r = m.vx - g.lo.u; if (r < 0) { tw = (m.x - g.lo.x) / -r; if (tw < t) { t = tw; k = 0; } }
+    r = m.vx - g.hi.u; if (r > 0) { tw = (g.hi.x - m.x) / r; if (tw < t) { t = tw; k = 1; } }
+    if (m.vy < 0) { tw = -m.y / m.vy; if (tw < t) { t = tw; k = 2; } }
+    else if (m.vy > 0) { tw = (1 - m.y) / m.vy; if (tw < t) { t = tw; k = 3; } }
+    if (m.vz < 0) { tw = -m.z / m.vz; if (tw < t) { t = tw; k = 4; } }
+    else if (m.vz > 0) { tw = (1 - m.z) / m.vz; if (tw < t) { t = tw; k = 5; } }
+    if (t < 0) t = 0;
+    var h = Math.min(t, ost);
+    m.x += m.vx * h; m.y += m.vy * h; m.z += m.vz * h;
+    g.lo.x += g.lo.u * h; g.hi.x += g.hi.u * h;
+    ost -= h;
+    if (t > h) break;
+    var e0 = energiya(m);
+    if (k <= 1) {
+      var b = k === 0 ? g.lo : g.hi;
+      m.x = b.x;
+      if (b.warm) { teplo(Z, m, 0, k === 0 ? 1 : -1); uch.Q += energiya(m) - e0; }
+      else { var v0 = m.vx; m.vx = 2 * b.u - v0; uch.W += 0.5 * (v0 * v0 - m.vx * m.vx); }
+    } else {
+      var os = k < 4 ? 1 : 2, nizh = (k & 1) === 0;
+      if (os === 1) m.y = nizh ? 0 : 1; else m.z = nizh ? 0 : 1;
+      teplo(Z, m, os, nizh ? 1 : -1); uch.Q += energiya(m) - e0;
+    }
+    if (sled) { sled.push([m.x, m.y]); if (sled.length > SLED) sled.shift(); }
+  }
+}
+
+/* p: { u — скорость поршня в долях √⟨v²⟩, erase — стирать ли, seed } */
+function model(p) {
+  var Z = { rnd: rngMake(p.seed) };
+  Z.gauss = gaussMake(Z.rnd);
+  var u = p.u * VKV, tau = 1 / u;
+  var M = {
+    p: p, Z: Z, u: u, tau: tau, rate: Math.max(RATE_MIN, Math.min(RATE_MAX, tau / EKRAN_HOD)),
+    mol: molekula(Z, 0, L), mem: molekula(Z, 0, 1),
+    gm: svobodno(), gp: { lo: gr(0, 0, true), hi: gr(1, 0, false) },
+    faza: 've', bit: null, t: 0,
+    um: { W: 0, Q: 0 }, up: { W: 0, Q: 0 },          /* с начала: машина и память */
+    n: 0, sW: 0, sW2: 0, sE: 0, sE2: 0, sN: 0, sN2: 0, sQm: 0, sQp: 0,
+    hist: [], lenta: [], last: null, sledM: [], sledP: []
+  };
+  M.ost = EKRAN_VES * M.rate;
+  M.Em0 = energiya(M.mol); M.Ep0 = energiya(M.mem);
+  M.s0 = { mW: 0, mQ: 0, pW: 0, pQ: 0 };
+  return M;
+}
+
+/* конец цикла: работа машины, цена стирания (или null), теплоты */
+function zakryt(M, steret) {
+  var Wm = M.um.W - M.s0.mW, Qm = M.um.Q - M.s0.mQ;
+  var We = steret ? -(M.up.W - M.s0.pW) : null, Qp = M.up.Q - M.s0.pQ;
+  M.n++; M.sW += Wm; M.sW2 += Wm * Wm; M.sQm += Qm;
+  if (steret) { var N = Wm - We; M.sE += We; M.sE2 += We * We; M.sN += N; M.sN2 += N * N; M.sQp += Qp; }
+  /* по циклу: работа машины, цена стирания и скользящие средние обеих */
+  M.hist.push([Wm, We, M.sW / M.n, steret ? M.sE / M.n : null]); if (M.hist.length > HIST) M.hist.shift();
+  M.last = { Wm: Wm, We: We, Qm: Qm, Qp: Qp, bit: M.bit };
+  M.s0 = { mW: M.um.W, mQ: M.um.Q, pW: M.up.W, pQ: M.up.Q };
+  M.faza = 've'; M.ost = EKRAN_VES * M.rate;
+}
+
+function smena(M) {
+  var u = M.u;
+  if (M.faza === 've') {
+    /* перегородка посередине; демон смотрит и пишет бит */
+    M.bit = M.mol.x < 1 ? 0 : 1;
+    M.gm = M.bit === 0 ? { lo: gr(0, 0, true), hi: gr(1, 0, false) } : { lo: gr(1, 0, false), hi: gr(L, 0, true) };
+    if (M.bit === 1) {
+      M.mem.x = L - M.mem.x; M.mem.vx = -M.mem.vx;
+      M.gp = { lo: gr(1, 0, false), hi: gr(L, 0, true) };
+      M.sledP = [];
+    }
+    M.sledM = [];          /* след из другой половины прошёл бы сквозь перегородку */
+    M.faza = 'pg'; M.ost = EKRAN_PG * M.rate;
+  } else if (M.faza === 'pg') {
+    /* перегородка уходит поршнем к пустой стороне */
+    if (M.bit === 0) M.gm.hi.u = u; else M.gm.lo.u = -u;
+    M.faza = 'hod'; M.ost = M.tau;
+  } else if (M.faza === 'hod') {
+    /* поршень у стенки, его вынимают: молекуле снова весь ящик */
+    M.gm = svobodno();
+    M.mol.x = Math.max(0, Math.min(L, M.mol.x));
+    if (M.p.erase) {
+      /* перегородку ячейки убрали, поршень с правого края сжимает её вдвое */
+      M.gp = { lo: gr(0, 0, true), hi: gr(L, -u, false) };
+      M.faza = 'st'; M.ost = M.tau;
+    } else {
+      /* ячейку с битом на ленту, в работу чистая ячейка */
+      M.lenta.push(M.bit);
+      var e1 = energiya(M.mem);
+      M.mem = molekula(M.Z, 0, 1);
+      M.Ep0 += energiya(M.mem) - e1;
+      M.gp = { lo: gr(0, 0, true), hi: gr(1, 0, false) };
+      M.sledP = [];
+      zakryt(M, false);
+    }
+  } else {
+    /* поршень у середины: на его место перегородка, ячейка в 0 */
+    M.gp = { lo: gr(0, 0, true), hi: gr(1, 0, false) };
+    M.mem.x = Math.max(0, Math.min(1, M.mem.x));
+    M.sledP = [];
+    zakryt(M, true);
+  }
+}
+
+/* продвинуть модель на dt единиц времени, разрезая шаг на сменах фаз */
+function prodvinut(M, dt, sled) {
+  var k = 0;
+  while (dt > 1e-15 && k++ < 100000) {
+    var h = Math.min(dt, M.ost);
+    letet(M.Z, M.mol, M.gm, h, M.um, sled ? M.sledM : null);
+    letet(M.Z, M.mem, M.gp, h, M.up, sled ? M.sledP : null);
+    M.t += h; M.ost -= h; dt -= h;
+    if (M.ost <= 1e-12) smena(M);
+  }
+}
+/* n циклов сразу, без рисунка */
+function cikly(M, n) {
+  var cel = M.n + n, k = 0;
+  while (M.n < cel && k++ < 100 * n + 100) prodvinut(M, Math.max(M.ost, 1e-9), false);
+  M.sledM = []; M.sledP = [];
+}
+
+function srednee(s, s2, n) {
+  if (!n) return { m: null, se: null, sd: null };
+  var m = s / n, v = n > 1 ? Math.max(0, (s2 / n - m * m) * n / (n - 1)) : null;
+  return { m: m, se: v != null ? Math.sqrt(v / n) : null, sd: v != null ? Math.sqrt(v) : null };
+}
+function sostoyanie(M) {
+  var W = srednee(M.sW, M.sW2, M.n), E = srednee(M.sE, M.sE2, M.p.erase ? M.n : 0), N = srednee(M.sN, M.sN2, M.p.erase ? M.n : 0);
+  var porshen = M.faza === 'hod' ? (M.bit === 0 ? M.gm.hi.x : M.gm.lo.x) : M.faza === 'pg' ? 1 : null;
+  return {
+    mode: 'scilard', erase: !!M.p.erase, uOverV: M.p.u, u: M.u, tau: M.tau, rate: M.rate, seed: M.p.seed,
+    phase: M.faza, bit: M.bit, piston: porshen, memPiston: M.faza === 'st' ? M.gp.hi.x : null,
+    cycles: M.n, Wlast: M.last ? M.last.Wm : null, Elast: M.last ? M.last.We : null,
+    Wmean: W.m, Wse: W.se, Wsd: W.sd, Emean: E.m, Ese: E.se, Esd: E.sd, netMean: N.m, netSe: N.se,
+    Qmean: M.n ? M.sQm / M.n : null, QpMean: M.p.erase && M.n ? M.sQp / M.n : null,
+    kTln2: LN2, bitsStored: M.lenta.length, t: M.t,
+    /* учёт энергии: E − E₀ = Q − W у каждой молекулы, до округления */
+    drift: Math.abs(energiya(M.mol) - M.Em0 - M.um.Q + M.um.W) + Math.abs(energiya(M.mem) - M.Ep0 - M.up.Q + M.up.W),
+    molX: M.mol.x, memX: M.mem.x
+  };
+}
+
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+function uTxt(u) { return num(u, u < 0.1 ? 3 : u < 1 ? 2 : 1); }
+/* показание в kT: три знака, у больших (быстрое стирание) один */
+function fmt(v) { return num(v, v != null && Math.abs(v) >= 10 ? 1 : 3); }
+/* ошибка среднего m с тем же числом знаков, что m (аудит 3, круг 2, K2-F-05) */
+function fmtKak(se, m) { return num(se, m != null && Math.abs(m) >= 10 ? 1 : 3); }
+
+/* ══════════════════ сцена ══════════════════
+
+   Слева сверху ящик машины сбоку, под ним ячейка памяти демона и, без
+   стирания, лента отложенных ячеек. Все неподвижные стенки тёплые и
+   обведены тёплым цветом; перегородка и поршни зеркальные, цветом
+   чернил. Справа работа по циклам: точки отдельных циклов и скользящие
+   средние машины и стирания, пунктиром kT ln 2. Внизу показания. */
+
+var W = 1000, HGT = 460;
+var BX = 60, BY = 62, B = 130;          /* ящик машины 2B × B */
+var PX = 60, PY = 264, PB = 56;         /* ячейка памяти 2PB × PB */
+var LX = 210, LY = 264, LS = 24;        /* лента: клетки LS */
+var GX0 = 575, GX1 = 915, GY0 = 50, GY1 = 318, WMAX = 2;
+var CM = '77,182,198', CE = '224,138,82', CW = '224,110,80';
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function Scilard() {
+  var box = useRef(null);
+  if (!box.current) {
+    box.current = { p: { u: U_SLOW, erase: true, seed: (Math.random() * 4294967296) >>> 0 }, run: true };
+    box.current.M = model(box.current.p);
+  }
+  var S = box.current;
+  var pair = useState({ n: 0 });
+  var setUi = pair[1];
+  var ui = useRef({ last: 0 });
+
+  function snyat() {
+    var q = sostoyanie(S.M);
+    for (var k in pokaz) delete pokaz[k];
+    Object.assign(pokaz, q, { running: S.run });
+  }
+  if (pokaz.mode == null) snyat();
+  function obnovit() { snyat(); setUi(function (u) { return { n: u.n + 1 }; }); }
+
+  function zanovo(o, seed) {
+    Object.assign(S.p, o || {});
+    S.p.seed = seed != null ? seed >>> 0 : (Math.random() * 4294967296) >>> 0;
+    S.M = model(S.p);
+    obnovit();
+  }
+
+  function step(dt) {
+    if (S.run) prodvinut(S.M, Math.min(dt, 0.05) * S.M.rate, true);
+    snyat();
+    ui.current.last += dt;
+    if (ui.current.last > 0.4) { ui.current.last = 0; setUi(function (u) { return { n: u.n + 1 }; }); }
+  }
+
+  /* ── рисунок ── */
+
+  function yashchik(ctx, x0, y0, b, mol, sled, cvet, r, ink) {
+    var w = 2 * b;
+    ctx.strokeStyle = 'rgba(' + CW + ',.85)'; ctx.lineWidth = 4;
+    ctx.strokeRect(x0, y0, w, b);
+    if (sled.length) {
+      ctx.strokeStyle = 'rgba(' + cvet + ',.35)'; ctx.lineWidth = 1.2; ctx.beginPath();
+      sled.forEach(function (s, i) {
+        var px = x0 + s[0] * b, py = y0 + (1 - s[1]) * b;
+        if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+      });
+      ctx.lineTo(x0 + mol.x * b, y0 + (1 - mol.y) * b);
+      ctx.stroke();
+    }
+    var mx = x0 + mol.x * b, my = y0 + (1 - mol.y) * b;
+    C.glow(ctx, mx, my, r * 3, cvet, 0.45);
+    ctx.fillStyle = 'rgb(' + cvet + ')'; ctx.beginPath(); ctx.arc(mx, my, r, 0, 2 * Math.PI); ctx.fill();
+  }
+  /* перегородка или поршень в точке x (единицы ящика); shtok: −1 влево, +1 вправо, 0 без штока */
+  function porshen(ctx, x0, y0, b, x, shtok, ink) {
+    var px = x0 + x * b;
+    ctx.fillStyle = 'rgba(' + ink + ',.9)'; ctx.fillRect(px - 3, y0 - 4, 6, b + 8);
+    if (shtok > 0) ctx.fillRect(px + 3, y0 + b / 2 - 2, x0 + 2 * b + 34 - px, 4);
+    if (shtok < 0) ctx.fillRect(x0 - 34, y0 + b / 2 - 2, px - 3 - (x0 - 34), 4);
+  }
+
+  function mashina(ctx, M, ink, mut) {
+    var f = M.faza;
+    ctx.save(); ctx.setLineDash([4, 5]); ctx.strokeStyle = 'rgba(' + mut + ',.5)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(BX + B, BY + 2); ctx.lineTo(BX + B, BY + B - 2); ctx.stroke(); ctx.restore();
+    yashchik(ctx, BX, BY, B, M.mol, M.sledM, CM, 7, ink);
+    if (f === 'pg') porshen(ctx, BX, BY, B, 1, M.bit === 0 ? 1 : -1, ink);
+    if (f === 'hod') porshen(ctx, BX, BY, B, M.bit === 0 ? M.gm.hi.x : M.gm.lo.x, M.bit === 0 ? 1 : -1, ink);
+    var txt = f === 've' ? '1. Молекула во всём ящике'
+      : f === 'pg' ? '2. Молекула ' + (M.bit ? 'справа' : 'слева') + ', демон записал ' + M.bit
+      : f === 'hod' ? '3. Молекула толкает поршень теплом стенок'
+      : '4. Стирание: ящик памяти сжимают вдвое';
+    C.label(ctx, BX, 36, txt, 17, 'rgba(' + ink + ',.95)', 'left');
+    C.label(ctx, BX, BY + B + 28, 'тёплые стенки: единственный резервуар', 17, 'rgba(' + CW + ',.95)', 'left');
+  }
+
+  function pamyat(ctx, M, ink, mut) {
+    var f = M.faza;
+    C.label(ctx, PX, PY - 14, 'память демона', 17, 'rgba(' + mut + ',.95)', 'left');
+    yashchik(ctx, PX, PY, PB, M.mem, M.sledP, CE, 5, ink);
+    if (f === 'st') porshen(ctx, PX, PY, PB, M.gp.hi.x, 1, ink);
+    else porshen(ctx, PX, PY, PB, 1, 0, ink);
+    C.label(ctx, PX + PB / 2, PY + PB + 24, '0', 17, 'rgba(' + mut + ',.95)');
+    C.label(ctx, PX + 1.5 * PB, PY + PB + 24, '1', 17, 'rgba(' + mut + ',.95)');
+    if (M.p.erase) return;
+    /* лента отложенных ячеек: последние девять, раньше счётом */
+    var n = M.lenta.length, pok = M.lenta.slice(-9);
+    C.label(ctx, LX, PY - 14, 'не стёрто: ' + n + ' ' + C.plural(n, 'бит', 'бита', 'бит'), 17, 'rgba(' + CE + ',.95)', 'left');
+    pok.forEach(function (bit, i) {
+      var x = LX + i * (LS + 4), y = PY + (PB - LS) / 2;
+      ctx.strokeStyle = 'rgba(' + ink + ',.6)'; ctx.lineWidth = 1.2; ctx.strokeRect(x, y, LS, LS);
+      ctx.beginPath(); ctx.moveTo(x + LS / 2, y + 3); ctx.lineTo(x + LS / 2, y + LS - 3); ctx.stroke();
+      ctx.fillStyle = 'rgb(' + CE + ')'; ctx.beginPath(); ctx.arc(x + (bit ? 0.75 : 0.25) * LS, y + LS / 2, 3.5, 0, 2 * Math.PI); ctx.fill();
+    });
+  }
+
+  function grafik(ctx, M, ink, mut) {
+    var n = M.n, m = 'rgba(' + mut + ',.95)';
+    var shk = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000], Nx = shk[shk.length - 1];
+    for (var i = 0; i < shk.length; i++) if (shk[i] >= n) { Nx = shk[i]; break; }
+    var h = M.hist, i0 = n - h.length, off = Math.max(0, n - Nx);
+    function X(k) { return GX0 + ((k - off) / Nx) * (GX1 - GX0); }
+    function Y(w) { return GY1 - Math.max(0, Math.min(WMAX, w)) / WMAX * (GY1 - GY0); }
+    C.label(ctx, GX0, GY0 - 16, 'работа за цикл, kT', 17, m, 'left');
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(GX0, GY0); ctx.lineTo(GX0, GY1); ctx.lineTo(GX1, GY1); ctx.stroke();
+    [0, 0.5, 1, 1.5, 2].forEach(function (v) { C.label(ctx, GX0 - 8, Y(v) + 6, num(v, v % 1 ? 1 : 0), 17, m, 'right'); });
+    C.label(ctx, GX1, GY1 + 24, 'циклов ' + Nx, 17, m, 'right');
+    ctx.save(); ctx.setLineDash([7, 5]); ctx.strokeStyle = 'rgba(' + ink + ',.85)'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(GX0, Y(LN2)); ctx.lineTo(GX1, Y(LN2)); ctx.stroke(); ctx.restore();
+    C.label(ctx, GX1 + 8, Y(LN2) - 4, 'kT ln 2', 17, 'rgba(' + ink + ',.95)', 'left');
+    C.label(ctx, GX1 + 8, Y(LN2) + 18, '0,693', 17, 'rgba(' + ink + ',.95)', 'left');
+    /* точки последних 400 циклов и скользящие средние с первого цикла;
+       линия средних прорежена до 600 вершин */
+    var jt = Math.max(0, h.length - 400), shag = Math.max(1, Math.ceil(h.length / 600));
+    [[0, 2, CM], [1, 3, CE]].forEach(function (kc) {
+      var j, c, nach = false;
+      ctx.fillStyle = 'rgba(' + kc[2] + ',.55)';
+      for (j = jt; j < h.length; j++) {
+        c = h[j]; if (c[kc[0]] == null) continue;
+        ctx.beginPath(); ctx.arc(X(i0 + j + 1), Y(c[kc[0]]), 2.4, 0, 2 * Math.PI); ctx.fill();
+      }
+      ctx.strokeStyle = 'rgb(' + kc[2] + ')'; ctx.lineWidth = 2.4; ctx.beginPath();
+      for (j = 0; j < h.length; j++) {
+        if (j % shag && j !== h.length - 1) continue;
+        c = h[j]; if (c[kc[1]] == null || i0 + j + 1 <= off) continue;
+        if (nach) ctx.lineTo(X(i0 + j + 1), Y(c[kc[1]])); else { ctx.moveTo(X(i0 + j + 1), Y(c[kc[1]])); nach = true; }
+      }
+      ctx.stroke();
+    });
+    C.label(ctx, GX0, GY1 + 24, 'машина', 17, 'rgb(' + CM + ')', 'left');
+    if (M.p.erase) C.label(ctx, GX0 + 90, GY1 + 24, 'стирание', 17, 'rgb(' + CE + ')', 'left');
+  }
+
+  function stroka(ctx, q, ink, mut) {
+    var Y0 = 384, m = 'rgba(' + mut + ',.95)';
+    C.readout(ctx, 190, Y0, 'ЦИКЛОВ', String(q.cycles), 'rgb(' + ink + ')');
+    C.label(ctx, 190, Y0 + 66, q.erase ? 'память стирается' : 'не стёрто ' + q.bitsStored, 17, m, 'right');
+    C.readout(ctx, 390, Y0, 'РАБОТА МАШИНЫ', fmt(q.Wmean), 'rgb(' + CM + ')');
+    C.label(ctx, 390, Y0 + 66, q.Wse != null ? '± ' + fmtKak(q.Wse, q.Wmean) + ' kT за цикл' : 'kT за цикл', 17, m, 'right');
+    C.readout(ctx, 590, Y0, 'ЦЕНА СТИРАНИЯ', q.erase ? fmt(q.Emean) : '—', 'rgb(' + CE + ')');
+    C.label(ctx, 590, Y0 + 66, !q.erase ? 'не стирали' : q.Ese != null ? '± ' + fmtKak(q.Ese, q.Emean) + ' kT за цикл' : 'kT за цикл', 17, m, 'right');
+    C.readout(ctx, 790, Y0, 'ИТОГ ЗА ЦИКЛ', q.erase ? fmt(q.netMean) : fmt(q.Wmean), 'rgb(' + ink + ')');
+    C.label(ctx, 790, Y0 + 66, q.erase ? (q.netSe != null ? '± ' + fmtKak(q.netSe, q.netMean) + ' kT' : 'kT за цикл') : 'память копится', 17, m, 'right');
+    C.readout(ctx, 990, Y0, 'kT ln 2', num(LN2, 3), 'rgb(' + ink + ')');
+    C.label(ctx, 990, Y0 + 66, '2,9·10⁻²¹ Дж при 300 К', 17, m, 'right');
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted, M = S.M;
+    if (pokaz.mode == null) return;
+    mashina(ctx, M, ink, mut);
+    pamyat(ctx, M, ink, mut);
+    grafik(ctx, M, ink, mut);
+    stroka(ctx, pokaz, ink, mut);
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+
+  function dvigatU(v) {
+    var u = Math.max(U_MIN, Math.min(U_MAX, v));
+    u = u < 0.1 ? Math.round(u * 1000) / 1000 : u < 1 ? Math.round(u * 100) / 100 : Math.round(u * 10) / 10;
+    if (u === S.p.u) return;
+    zanovo({ u: u });
+  }
+  function sto() { cikly(S.M, 100); obnovit(); }
+
+  /* Для автопроверки: __demoSet({ u, erase, seed, run }) пересоздаёт опыт
+     (u в долях √⟨v²⟩); __demoCycles(n) считает n циклов сразу;
+     __demoModel — модель и счёт для прогона без экрана. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    var p = {};
+    if (o.u != null) p.u = o.u;
+    if (o.erase != null) p.erase = !!o.erase;
+    if (o.run != null) S.run = !!o.run;
+    zanovo(p, o.seed);
+    return pokaz;
+  };
+  window.__demoCycles = function (n) { cikly(S.M, n || 1); obnovit(); return pokaz; };
+  window.__demoModel = { get M() { return S.M; }, model: model, prodvinut: prodvinut, cikly: cikly, sostoyanie: sostoyanie, LN2: LN2 };
+
+  /* ── строка под сценой ── */
+
+  function slova() {
+    var q = pokaz, A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var nach = 'В ящике одна молекула, его стенки держат температуру T: это единственный резервуар. ' +
+      'Демон вставляет перегородку, смотрит, в какой половине молекула, и пишет бит в память: такой же ящик с одной молекулой, где левая половина значит 0, правая 1. ' +
+      'Перегородка становится поршнем и уходит к пустой стороне, а молекула толкает его, пока снова не займёт весь ящик.';
+    if (!q.cycles) return nach + ' Обратимая изотерма дала бы kT ln 2 = 0,693 kT работы за цикл.';
+    var pm = function (m, se) { return A(fmt(m)) + (se != null ? ' ± ' + fmtKak(se, m) : ''); };
+    /* Знак недобора и избытка утверждается, когда среднее отстоит от
+       kT ln 2 больше чем на две свои ошибки; при 0,01 это 450–500 циклов,
+       при 0,3 10–20 (аудит 3, А3-02). Теплота от стенок за все
+       циклы равна всей работе плюс смена энергии молекулы, а та порядка
+       нескольких kT: пока вся работа меньше 10 kT, средняя теплота бывает
+       отрицательной (при 0,3 после 10 циклов в 9 опытах из 80). Поэтому
+       теплота печатается, когда вся работа не меньше 10 kT: при 0,01 с 15
+       циклов, при 0,3 с 34, при 3 никогда. */
+    var txt = 'За ' + q.cycles + ' ' + C.plural(q.cycles, 'цикл', 'цикла', 'циклов') + ' машина дала ' + pm(q.Wmean, q.Wse) +
+      ' kT работы за цикл' + (q.Wmean * q.cycles >= 10 ? '; энергию молекула взяла у стенок, ' + num(q.Qmean, 3) + ' kT. ' : '. ');
+    var wNiz = q.Wse != null && q.Wmean + 2 * q.Wse < LN2;
+    var eVys = q.Ese != null && q.Emean - 2 * q.Ese > LN2;
+    var nW = !wNiz, nE = q.erase && !eVys;
+    /* Аудит 3, круг 1, T1-03: если в разбросе тонут и недобор машины, и
+       избыток стирания, два одинаковых хвоста «, но здесь … пока тонет в
+       разбросе» сведены в одну фразу после строки стирания. */
+    var obaTonut = q.uOverV < 1 && nW && nE;
+    if (q.Wsd == null)
+      txt += 'По одному циклу о средних судить нельзя: работа от цикла к циклу гуляет. ';
+    else if (nW || nE)
+      txt += 'От цикла к циклу ' + (nW ? 'работа гуляет на ' + num(q.Wsd, 2) : 'цена стирания гуляет на ' + num(q.Esd, q.Esd >= 10 ? 1 : 2)) +
+        ' kT; «+100 циклов» уточнит ' + (nW && nE ? 'средние' : 'среднее') + '. ';
+    /* При u от 1 до 1,5 молекула ещё изредка догоняет поршень: работа
+       0,01–0,02 kT за цикл (аудит 3, х3); «работы нет» говорится, только
+       когда за все циклы она ни разу не догнала. */
+    if (q.uOverV >= 1)
+      txt += q.Wmean > 0
+        ? 'Поршень уходит не медленнее молекулы: догоняет она его, только когда летит к нему ещё быстрее, а это редкость, и работы почти нет. '
+        : 'Поршень уходит быстрее молекулы, она его ни разу не догнала, и работы нет. ';
+    else
+      txt += 'Обратимая изотерма дала бы kT ln 2 = 0,693; поршень с конечной скоростью в среднем получает меньше, и тем ближе к пределу, чем он медленнее' +
+        (wNiz || obaTonut ? '. ' : ', но здесь недобор пока тонет в разбросе. ');
+    if (!q.erase)
+      return txt + 'Память не стирается: работа идёт из тепла одного резервуара, но за каждый цикл на ленте остаётся бит, сейчас их ' + A(String(q.bitsStored)) +
+        '. Круг не замкнут, пока демон не вернулся в начальное состояние, а для этого все биты надо стереть, и стирание бита в среднем стоит не меньше kT ln 2.';
+    txt += 'Стирание сжимает ящик памяти вдвое и стоит за цикл ' + pm(q.Emean, q.Ese) + ' kT; обратимое сжатие стоило бы kT ln 2, а конечная скорость поршня в среднем делает его дороже' +
+      (eVys ? '. ' : obaTonut ? '. Недобор машины и избыток стирания пока тонут в разбросе. ' : ', но здесь избыток пока тонет в разбросе. ') +
+      'Работа стирания уходит теплом в стенки. Итог за цикл ' + pm(q.netMean, q.netSe) + ' kT: ';
+    if (q.netSe == null) txt += 'по одному циклу его не оценить. ';
+    else if (q.netMean - 2 * q.netSe > 0) txt += 'пока выше нуля, но циклов мало, и это разброс. ';
+    else txt += (q.netMean + 2 * q.netSe < 0 ? 'меньше нуля' : 'в пределах разброса ноль') + ', и работы из тепла одного резервуара нет. ';
+    if (q.uOverV <= 0.01) txt += 'К нулю итог подходит только при медленном поршне, как предельный КПД у машины Карно, которая мощности не даёт. ';
+    return txt + 'Будь стирание в среднем дешевле kT ln 2, медленная машина вместе с ним давала бы работу из одного резервуара.';
+  }
+
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Поршень:">
+          <${C.Btn} active=${S.p.u === U_SLOW} onClick=${function () { zanovo({ u: U_SLOW }); }}>медленный<//>
+          <${C.Btn} active=${S.p.u === U_FAST} onClick=${function () { zanovo({ u: U_FAST }); }}>быстрый<//>
+        <//>
+        <${C.Slider} label="Скорость поршня:" log=${true} min=${U_MIN} max=${U_MAX} value=${S.p.u}
+                     onChange=${dvigatU} display=${uTxt(S.p.u) + ' √⟨v²⟩'} />
+        <${C.Group} label="Память:">
+          <${C.Btn} active=${S.p.erase} onClick=${function () { zanovo({ erase: true }); }}>стирать<//>
+          <${C.Btn} active=${!S.p.erase} onClick=${function () { zanovo({ erase: false }); }}>не стирать<//>
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${function () { S.run = !S.run; obnovit(); }}>${S.run ? 'Пауза' : 'Пуск'}<//>
+          <${C.Btn} onClick=${sto}>+100 циклов<//>
+          <${C.Btn} onClick=${function () { zanovo(); }}>Заново<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Scilard);
+</script>
+</body>
+</html>

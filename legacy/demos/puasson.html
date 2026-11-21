@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Коэффициент Пуассона: сужение и ауксетик</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-08/">&larr; Неделя 08</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=puasson"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Замечание 6 вычитки автора 18.10 (briefs/lekciya08_vychitka_avtora_18-10.md:
+   «для демонстрации отрицательного и положительного коэффициента Пуассона
+   нужны демка и рисунок»). Блоки главы koefficient-puassona (определение
+   μ = −(Δa/a)/(ΔL/L) при свободных боковых гранях, сталь 0,3, резина почти
+   1/2, вогнутые ячейки), vsestoronnee-szhatie (ΔV/V как сумма трёх
+   удлинений, предел μ < 1/2) и sdvig-i-kruchenie (предел μ > −1).
+
+   СПЛОШНОЕ ТЕЛО. Образец растянут вдоль оси x на ε, боковые грани свободны.
+   Поперёк, по y и по z одинаково, он меняется на ε⊥ = −με: это определение
+   из главы, других законов в счёте нет. Объём есть произведение трёх рёбер;
+   при малых деформациях относительные добавки складываются, как в
+   vsestoronnee-szhatie:
+       ΔV/V = ε + 2ε⊥ = (1 − 2μ)ε.
+   Точное произведение (1 + ε)(1 + ε⊥)² − 1 отличается от этого на члены
+   порядка ε², при ε ≤ 10⁻³ на миллионные доли; оно лежит в __demoState
+   для сверки. Удлинение до 10⁻³, как в примере energiya-deformacii (сталь
+   при нём держит 200 МПа и ещё упруга); на рисунке деформации увеличены
+   в 150 раз, иначе их не видно. Ползунок μ от −1 до 1/2, края допустимого
+   интервала из главы.
+
+   СОТА. Ауксетик сделан из решётки: жёсткие стенки на шарнирах.
+   Вертикальные стенки длиной h, наклонные длиной l под углом θ к оси
+   растяжения; θ < 0 у вогнутой ячейки (наклонные стенки смотрят внутрь,
+   ячейка похожа на бабочку), θ > 0 у выпуклой (шестиугольник). Период
+   решётки вдоль x равен 2l cos θ, шаг рядов поперёк h + l sin θ. Стенки не
+   растягиваются, поворачиваются только шарниры, поэтому растяжение вдоль на
+   ε задаёт новый угол:
+       cos θ = cos θ₀ (1 + ε),
+   знак θ прежний, |θ| убывает: наклонные стенки поворачиваются к оси
+   растяжения. Поперёк
+       ε⊥ = (h + l sin θ)/(h + l sin θ₀) − 1.
+   У вогнутой ячейки sin θ растёт от отрицательного к нулю, шаг рядов
+   растёт, и сота раздаётся; у выпуклой sin θ убывает, и сота сужается.
+   Формулы ε⊥ через μ здесь нет: поперечный размер выходит из положения
+   шарниров. Узлы решётки на рисунке считаются из этих же cos θ и sin θ,
+   и длины всех стенок остаются l и h (проверка ниже).
+   μ малых растяжений, предел −ε⊥/ε при ε → 0, у такой решётки
+       μ₀ = cos²θ₀ / ((h/l + sin θ₀) sin θ₀)
+   (дифференцированием формул выше). Ползунок задаёт μ₀, а угол θ₀ ищется
+   по нему делением отрезка пополам при h/l = 2: на каждой половине,
+   θ₀ ∈ (−90°, 0) и (0, 90°), μ₀ монотонна. При μ₀ → 0 стенки встают
+   вертикально и ячейка вырождается, поэтому в режиме соты |μ| ≥ 0,05.
+   Удлинение соты до 15 %, в натуральную величину: решётки так и работают,
+   на больших деформациях. Предел хода у вогнутой соты, когда наклонные
+   стенки выпрямились в линию, ε = 1/cos θ₀ − 1; при μ₀ = −1 это 15,5 %,
+   поэтому ход 15 % его не достаёт. Сота в демке плоская картинка, а для
+   объёма считаем, что в глубину ячейки устроены так же, и поперёк по z
+   она меняется, как по y: ΔV/V = (1 + ε)(1 + ε⊥)² − 1, рядом для
+   сравнения (1 − 2μ₀)ε.
+
+   ПРОВЕРКА (18.10, node по этому же коду и hcheck на порту 49952: __demoSet,
+   __demoTick, чтение __demoState и пикселей канвы; отчёт
+   briefs/vychitka08_demka_REPORT.md). Сплошное тело при ε = 10⁻³: сталь
+   ε⊥ = −3·10⁻⁴, ΔV/V = 4·10⁻⁴ (точное произведение 3,995·10⁻⁴), проволока
+   1 мм тоньше на 0,30 мкм; с E = 2·10¹¹ Па то же μ = 0,3 даёт
+   K = 1,67·10¹¹ Па и G = 77 ГПа, как в главе; резина 0,499: ΔV/V = 2·10⁻⁶, в 500 раз
+   меньше ε; пробка 10⁻³; μ = −1: ε⊥ = +10⁻³, ΔV/V = 3·10⁻³; μ = 1/2: ноль.
+   Сота, h/l = 2: μ₀ = −1 даёт θ₀ = −30,0° и ход до выпрямления 15,47 %;
+   −0,7 даёт −39,0° (28,7 %); −0,05 даёт −77,1°; 0,05 даёт 68,3°; 0,3 даёт
+   42,5°; 1/2 даёт 33,3° (19,6 %). −ε⊥/ε при ε = 10⁻⁷ совпадает с μ₀ до
+   2·10⁻⁷ на всех девяти. При 15 %: μ₀ = −0,7, θ = −26,7°, ε⊥ = +13,18 %,
+   −ε⊥/ε = −0,879, ΔV/V = 47,3 % против (1 − 2μ₀)ε = 36,0 %; μ₀ = −1,
+   ε⊥ = +27,3 %, θ = −5,2°; μ₀ = 0,3, ε⊥ = −5,42 %; μ₀ = 1/2, ε⊥ = −10,74 %,
+   −ε⊥/ε = 0,716, ΔV/V = −8,4 %. Длины стенок на 78–258 ячейках (до 1548
+   стенок) при ε = 0, 5 и 15 % равны l и h до 9·10⁻¹⁶. Отрицательный
+   контроль: та же решётка, растянутая подобием на (1 + ε, 1 + ε⊥), то есть
+   нарисованная, а не посчитанная, меняет длины стенок до 26 % (μ₀ = −0,7)
+   и 11 % (0,3); тот же |θ₀| с другим знаком даёт μ₀ = +0,36 вместо −0,7.
+   По пикселям верхний край образца на канве стоит там, где его ставит
+   __demoState.vis.top (до толщины линии): ниже пунктира 110 у стали, выше
+   у соты. */
+
+/* ── чистая физика ──────────────────────────────────────────────
+   Отсюда до пометки «конец чистой физики» код не знает о браузере и
+   прогоняется в node. */
+
+var EPS_SPL = 1e-3;          /* сплошное тело: удлинение до 10⁻³ */
+var EPS_SOTA = 0.15;         /* сота: до 15 % */
+var UVELICH = 150;           /* сплошное тело: деформации на рисунке ×150 */
+var POZ = 100;               /* позиций ползунка удлинения */
+var HL = 2;                  /* h/l соты */
+var MU_SOTA_MIN = 0.05;      /* |μ| соты не меньше: у нуля ячейка вырождается */
+var MU_MIN = -1, MU_MAX = 0.5;
+var NABOR = [
+  { id: 'stal', knopka: 'сталь', mu: 0.3, sota: false },
+  { id: 'rezina', knopka: 'резина', mu: 0.499, sota: false },
+  { id: 'probka', knopka: 'пробка', mu: 0, sota: false },
+  { id: 'sota', knopka: 'ауксетик-сота', mu: -0.7, sota: true }
+];
+var PO_ID = {};
+NABOR.forEach(function (q) { PO_ID[q.id] = q; });
+
+/* Сплошное тело при удлинении eps. */
+function sploshnoe(mu, eps) {
+  var ep = -mu * eps;
+  return {
+    sota: false, mu: mu, eps: eps, epsPerp: ep,
+    dV: (1 - 2 * mu) * eps, dVlin: (1 - 2 * mu) * eps,
+    dVexact: (1 + eps) * (1 + ep) * (1 + ep) - 1,
+    muSec: mu, muTan: mu
+  };
+}
+
+/* μ малых растяжений соты с углом th и отношением r = h/l. */
+function muSoty(th, r) {
+  var s = Math.sin(th), c = Math.cos(th);
+  return c * c / ((r + s) * s);
+}
+/* Угол θ₀ по μ₀: на каждой половине μ₀(θ) убывает. */
+function ugolPoMu(mu, r) {
+  var lo = mu < 0 ? -Math.PI / 2 + 1e-12 : 1e-12, hi = mu < 0 ? -1e-12 : Math.PI / 2 - 1e-12;
+  for (var i = 0; i < 200; i++) {
+    var m = 0.5 * (lo + hi);
+    if (muSoty(m, r) > mu) lo = m; else hi = m;
+  }
+  return 0.5 * (lo + hi);
+}
+/* Сота с μ₀ = mu, растянутая на eps: угол из шарниров, поперёк из шага рядов. */
+function sota(mu, eps, r) {
+  r = r || HL;
+  var th0 = ugolPoMu(mu, r), c0 = Math.cos(th0), s0 = Math.sin(th0);
+  var predel = 1 / c0 - 1, vypr = eps >= predel, e = vypr ? predel : eps;
+  var k = Math.min(1, c0 * (1 + e));
+  var th = (th0 < 0 ? -1 : 1) * Math.acos(k);
+  var c = Math.cos(th), s = Math.sin(th);
+  var ep = (r + s) / (r + s0) - 1;
+  var mu0 = muSoty(th0, r);
+  return {
+    sota: true, mu: mu, r: r, th0: th0, th: th, c0: c0, s0: s0, c: c, s: s,
+    eps: e, epsPerp: ep, predel: predel, vypr: vypr,
+    dV: (1 + e) * (1 + ep) * (1 + ep) - 1, dVexact: (1 + e) * (1 + ep) * (1 + ep) - 1,
+    dVlin: (1 - 2 * mu0) * e,
+    muTan: mu0, muSec: e > 0 ? -ep / e : mu0
+  };
+}
+
+/* Ячейки решётки в единицах l: центр (X, Y), шесть вершин по кругу
+   (верх, правая верхняя, правая нижняя, низ, левая нижняя, левая верхняя).
+   Ряды через h + l sin θ со сдвигом соседнего ряда на l cos θ; вершина
+   «верх» ячейки есть «левая нижняя» ячейки справа выше. Lh — полудлина
+   рамки, nRyad — рядов в половине высоты; берётся ряд и столбец с запасом:
+   ячейки соседей заходят в рамку. */
+function reshetka(g, Lh, nRyad) {
+  var h = g.r, c = g.c, s = g.s, dy = h + s, out = [];
+  var jm = nRyad + 1, im = Math.ceil(Lh / (2 * c)) + 1;
+  for (var j = -jm; j < jm; j++) {
+    var Y = (j + 0.5) * dy, off = (j & 1) ? c : 0;
+    for (var i = -im; i <= im; i++) {
+      var X = 2 * c * i + off;
+      out.push({ X: X, Y: Y, i: i, j: j, v: [
+        [X, Y + h / 2 + s], [X + c, Y + h / 2], [X + c, Y - h / 2],
+        [X, Y - h / 2 - s], [X - c, Y - h / 2], [X - c, Y + h / 2]] });
+    }
+  }
+  return out;
+}
+/* Длины всех стенок решётки: наклонные должны быть 1, вертикальные h/l. */
+function dlinyStenok(cells, r) {
+  var dMax = 0, n = 0;
+  cells.forEach(function (q) {
+    for (var k = 0; k < 6; k++) {
+      var a = q.v[k], b = q.v[(k + 1) % 6];
+      var d = Math.hypot(b[0] - a[0], b[1] - a[1]), want = (k === 1 || k === 4) ? r : 1;
+      dMax = Math.max(dMax, Math.abs(d - want)); n++;
+    }
+  });
+  return { n: n, maxDev: dMax };
+}
+
+/* Режим и μ по нажатой кнопке и ползунку: в соте |μ| ≥ 0,05. */
+function muDlya(mu, sotaRezhim) {
+  mu = Math.max(MU_MIN, Math.min(MU_MAX, mu));
+  if (sotaRezhim && Math.abs(mu) < MU_SOTA_MIN) mu = mu < 0 ? -MU_SOTA_MIN : MU_SOTA_MIN;
+  return mu;
+}
+function epsDlya(poz, sotaRezhim) { return poz / POZ * (sotaRezhim ? EPS_SOTA : EPS_SPL); }
+function sostoyanie(mu, poz, sotaRezhim) {
+  var e = epsDlya(poz, sotaRezhim);
+  return sotaRezhim ? sota(mu, e, HL) : sploshnoe(mu, e);
+}
+/* ── конец чистой физики ── */
+
+/* Русская запятая и настоящий минус; крохи печатаются нулём. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+/* Проценты: в соте десятые (сотые меньше процента), у сплошного тела
+   тысячные, у крох до четырёх знаков. */
+function proc(x, sotaRezhim) {
+  var p = x * 100, a = Math.abs(p);
+  if (sotaRezhim) return num(p, a > 0 && a < 0.995 ? 2 : 1);
+  if (a > 0 && a < 0.00995) return num(p, 4).replace(/(,\d{3})0$/, '$1');
+  return num(p, 3);
+}
+/* То же со знаком плюс у положительных: поперёк и объём меняются в обе стороны. */
+function procZn(x, sotaRezhim) {
+  var t = proc(x, sotaRezhim);
+  return x > 0 && t.replace(/[0,]/g, '') !== '' ? '+' + t : t;
+}
+function muTxt(mu) {
+  return Math.abs(mu * 100 - Math.round(mu * 100)) > 1e-6 ? num(mu, 3) : num(mu, 2);
+}
+
+/* ══════════════════ сцена ══════════════════
+
+   Слева образец сбоку: пунктиром он до растяжения, сплошным после. У
+   сплошного тела на него нанесена сетка, и каждая клетка тянется так же,
+   как весь образец; у соты внутри решётка, посчитанная по шарнирам, одна
+   ячейка закрашена. Сверху и снизу стрелки поперечного изменения: тёплые
+   внутрь, когда образец сужается, зелёные наружу, когда раздаётся. Справа
+   сечение с торца: квадрат меняется одинаково по обеим поперечным осям.
+   Внизу показания. */
+
+var W = 1000, HGT = 440;
+var CX = 320, CY = 190, L0 = 400, A0 = 160;   /* образец: центр, длина, толщина */
+var ECX = 835, ECY = 190;                     /* сечение, ребро то же A0 */
+var NRYAD = 2;                                /* рядов соты в половине толщины */
+var CV = '77,182,198';                        /* образец */
+var CS = '224,138,82';                        /* сужение */
+var CW = '120,200,120';                       /* раздача */
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function Puasson() {
+  var box = useRef(null);
+  if (!box.current) box.current = { mu: 0.3, nabor: 'stal', sota: false, poz: POZ, anim: false, t: 0, pozUi: POZ };
+  var S = box.current;
+  var pair = useState({ n: 0 });
+  var setUi = pair[1];
+
+  /* Геометрия рисунка: размеры в пикселях из состояния модели. */
+  function geometriya(g) {
+    var k = g.sota ? 1 : UVELICH;
+    var out = { uvelich: k, Lpx: L0 * (1 + k * g.eps), Apx: A0 * (1 + k * g.epsPerp) };
+    if (g.sota) {
+      out.lpx = A0 / 2 / (NRYAD * (g.r + g.s0));     /* длина наклонной стенки, пикселей */
+      out.Lh = L0 / 2 / out.lpx * (1 + g.eps);        /* полудлина рамки в единицах l */
+    }
+    return out;
+  }
+
+  function snyat() {
+    var g = sostoyanie(S.mu, S.poz, S.sota), geo = geometriya(g);
+    for (var k in pokaz) delete pokaz[k];
+    Object.assign(pokaz, g, {
+      nabor: S.nabor, poz: S.poz, anim: S.anim, t: S.t, epsMax: S.sota ? EPS_SOTA : EPS_SPL,
+      uvelich: geo.uvelich, vis: { L: geo.Lpx, A: geo.Apx, E: geo.Apx, top: CY - geo.Apx / 2, bottom: CY + geo.Apx / 2,
+                                    left: CX - geo.Lpx / 2, right: CX + geo.Lpx / 2 }
+    });
+    if (g.sota) {
+      pokaz.th0Deg = g.th0 * 180 / Math.PI; pokaz.thDeg = g.th * 180 / Math.PI;
+      pokaz.lpx = geo.lpx;
+      pokaz.steny = dlinyStenok(reshetka(g, geo.Lh, NRYAD), g.r);
+    }
+    return g;
+  }
+  if (pokaz.mu == null) snyat();
+
+  function obnovit() { snyat(); setUi(function (u) { return { n: u.n + 1 }; }); }
+
+  function step(dt) {
+    if (!S.anim) return;
+    S.t += dt;
+    S.poz = POZ * (1 - Math.cos(2 * Math.PI * S.t / 4)) / 2;   /* полный ход за 4 с */
+    snyat();
+    var p = Math.round(S.poz);
+    if (p !== S.pozUi) { S.pozUi = p; setUi(function (u) { return { n: u.n + 1 }; }); }
+  }
+
+  /* ── примитивы ── */
+
+  function strelka(ctx, x0, y0, x1, y1, color, w) {
+    var a = Math.atan2(y1 - y0, x1 - x0), L = Math.hypot(x1 - x0, y1 - y0);
+    if (L < 4) return;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = w || 3; ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1 - 10 * Math.cos(a), y1 - 10 * Math.sin(a)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - 13 * Math.cos(a) + 7 * Math.sin(a), y1 - 13 * Math.sin(a) - 7 * Math.cos(a));
+    ctx.lineTo(x1 - 13 * Math.cos(a) - 7 * Math.sin(a), y1 - 13 * Math.sin(a) + 7 * Math.cos(a));
+    ctx.closePath(); ctx.fill();
+  }
+  function punktirRect(ctx, x, y, w, h, color) {
+    ctx.save(); ctx.setLineDash([6, 5]); ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, y, w, h); ctx.restore();
+  }
+
+  /* ── образец сбоку ── */
+
+  function obrazec(ctx, g, geo, ink, mut, acc) {
+    var Lp = geo.Lpx, Ap = geo.Apx, x0 = CX - Lp / 2, y0 = CY - Ap / 2, i;
+    punktirRect(ctx, CX - L0 / 2, CY - A0 / 2, L0, A0, 'rgba(' + ink + ',.5)');
+    if (!g.sota) {
+      ctx.fillStyle = 'rgba(' + CV + ',.16)'; ctx.fillRect(x0, y0, Lp, Ap);
+      /* сетка на образце: десять клеток по длине, четыре по толщине */
+      ctx.strokeStyle = 'rgba(' + CV + ',.45)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (i = 1; i < 10; i++) { ctx.moveTo(x0 + Lp * i / 10, y0); ctx.lineTo(x0 + Lp * i / 10, y0 + Ap); }
+      for (i = 1; i < 4; i++) { ctx.moveTo(x0, y0 + Ap * i / 4); ctx.lineTo(x0 + Lp, y0 + Ap * i / 4); }
+      ctx.stroke();
+    } else {
+      soty(ctx, g, geo, x0, y0, Lp, Ap, ink);
+    }
+    ctx.strokeStyle = 'rgb(' + CV + ')'; ctx.lineWidth = 2;
+    ctx.strokeRect(x0, y0, Lp, Ap);
+    /* захваты и силы */
+    ctx.fillStyle = 'rgba(' + ink + ',.55)';
+    ctx.fillRect(x0 - 16, y0 - 6, 16, Ap + 12);
+    ctx.fillRect(x0 + Lp, y0 - 6, 16, Ap + 12);
+    if (g.eps > 0) {
+      strelka(ctx, x0 - 18, CY, x0 - 70, CY, 'rgb(' + acc + ')');
+      strelka(ctx, x0 + Lp + 18, CY, x0 + Lp + 70, CY, 'rgb(' + acc + ')');
+      C.label(ctx, x0 - 44, CY - 16, 'F', 19, 'rgb(' + acc + ')');
+      C.label(ctx, x0 + Lp + 44, CY - 16, 'F', 19, 'rgb(' + acc + ')');
+    }
+    /* поперёк: стрелки у верхней и нижней граней */
+    var txt, col;
+    if (g.eps <= 0) return;
+    if (Math.abs(g.epsPerp) < 1e-12) {
+      txt = 'поперёк не меняется'; col = 'rgba(' + mut + ',.95)';
+    } else if (g.epsPerp < 0) {
+      txt = 'сужается'; col = 'rgb(' + CS + ')';
+      strelka(ctx, CX, y0 - 46, CX, y0 - 6, col);
+      strelka(ctx, CX, y0 + Ap + 46, CX, y0 + Ap + 6, col);
+    } else {
+      txt = 'раздаётся'; col = 'rgb(' + CW + ')';
+      strelka(ctx, CX, y0 - 4, CX, y0 - 44, col);
+      strelka(ctx, CX, y0 + Ap + 4, CX, y0 + Ap + 44, col);
+    }
+    C.label(ctx, CX + 14, y0 - 22, txt, 17, col, 'left');
+  }
+
+  /* Решётка: узлы из модели, отрезана рамкой образца. */
+  function soty(ctx, g, geo, x0, y0, Lp, Ap, ink) {
+    var l = geo.lpx, cells = reshetka(g, geo.Lh, NRYAD);
+    function P(p) { return [CX + p[0] * l, CY - p[1] * l]; }
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x0, y0, Lp, Ap); ctx.clip();
+    /* одна ячейка закрашена: видно, как она раскрывается или сплющивается */
+    cells.forEach(function (q) {
+      if (q.i !== 0 || q.j !== 0) return;
+      ctx.fillStyle = 'rgba(' + CV + ',.30)';
+      ctx.beginPath();
+      q.v.forEach(function (p, k) { var a = P(p); if (k) ctx.lineTo(a[0], a[1]); else ctx.moveTo(a[0], a[1]); });
+      ctx.closePath(); ctx.fill();
+    });
+    ctx.strokeStyle = 'rgb(' + CV + ')'; ctx.lineWidth = 2.2; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    cells.forEach(function (q) {
+      q.v.forEach(function (p, k) { var a = P(p); if (k) ctx.lineTo(a[0], a[1]); else ctx.moveTo(a[0], a[1]); });
+      ctx.closePath();
+    });
+    ctx.stroke();
+    /* та же ячейка до растяжения, пунктиром на своём прежнем месте */
+    if (g.eps > 0) {
+      var g0 = sota(g.mu, 0, g.r), q0 = reshetka(g0, 1, 0).filter(function (q) { return q.i === 0 && q.j === 0; })[0];
+      ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = 'rgba(' + ink + ',.9)'; ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      q0.v.forEach(function (p, k) { var a = P(p); if (k) ctx.lineTo(a[0], a[1]); else ctx.moveTo(a[0], a[1]); });
+      ctx.closePath(); ctx.stroke(); ctx.restore();
+    }
+    /* шарниры: правые верхняя и нижняя вершины каждой ячейки покрывают все
+       узлы по разу, остальные четыре принадлежат соседям */
+    ctx.fillStyle = 'rgba(' + ink + ',.85)';
+    cells.forEach(function (q) {
+      [q.v[1], q.v[2]].forEach(function (p) {
+        var a = P(p);
+        ctx.beginPath(); ctx.arc(a[0], a[1], 2.3, 0, 2 * Math.PI); ctx.fill();
+      });
+    });
+    ctx.restore();
+  }
+
+  /* ── сечение с торца ── */
+
+  function sechenie(ctx, g, geo, ink, mut) {
+    var a = geo.Apx;
+    C.label(ctx, ECX, ECY - A0 / 2 - 42, 'сечение, вид с торца', 17, 'rgba(' + mut + ',.95)');
+    punktirRect(ctx, ECX - A0 / 2, ECY - A0 / 2, A0, A0, 'rgba(' + ink + ',.5)');
+    ctx.fillStyle = 'rgba(' + CV + ',.16)'; ctx.fillRect(ECX - a / 2, ECY - a / 2, a, a);
+    ctx.strokeStyle = 'rgb(' + CV + ')'; ctx.lineWidth = 2;
+    ctx.strokeRect(ECX - a / 2, ECY - a / 2, a, a);
+    /* ось растяжения смотрит на нас */
+    ctx.strokeStyle = 'rgba(' + ink + ',.7)'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(ECX, ECY, 9, 0, 2 * Math.PI); ctx.stroke();
+    ctx.fillStyle = 'rgba(' + ink + ',.7)';
+    ctx.beginPath(); ctx.arc(ECX, ECY, 2.8, 0, 2 * Math.PI); ctx.fill();
+    if (g.sota) C.label(ctx, ECX, ECY + A0 / 2 + 40, 'в глубину сота такая же', 17, 'rgba(' + mut + ',.95)');
+  }
+
+  /* ── показания ── */
+
+  function pokazaniya(ctx, g, ink, mut) {
+    var sr = g.sota, Y = 356, mutS = 'rgba(' + mut + ',.95)';
+    var cp = Math.abs(g.epsPerp) < 1e-12 ? 'rgb(' + ink + ')' : g.epsPerp < 0 ? 'rgb(' + CS + ')' : 'rgb(' + CW + ')';
+    C.readout(ctx, 215, Y, 'ВДОЛЬ ε, %', proc(g.eps, sr), 'rgb(' + ink + ')');
+    C.readout(ctx, 455, Y, 'ПОПЕРЁК, %', procZn(g.epsPerp, sr), cp);
+    C.readout(ctx, 715, Y, 'ОБЪЁМ ΔV/V, %', procZn(g.dV, sr), 'rgb(' + ink + ')');
+    C.readout(ctx, 965, Y, sr ? 'μ = −ε⊥/ε' : 'μ', sr ? num(g.muSec, 2) : muTxt(g.mu), 'rgb(' + CV + ')');
+    C.label(ctx, 455, Y + 66, sr ? 'из шарниров' : 'ε⊥ = −με', 17, mutS, 'right');
+    C.label(ctx, 715, Y + 66, sr ? '(1 − 2μ)ε дала бы ' + proc(g.dVlin, true) : '(1 − 2μ)ε', 17, mutS, 'right');
+    C.label(ctx, 965, Y + 66, sr ? 'при малом ε ' + num(g.muTan, 2) : 'ползунок', 17, mutS, 'right');
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted, acc = tone.accent;
+    var g = sostoyanie(S.mu, S.poz, S.sota), geo = geometriya(g);
+    C.label(ctx, 30, 28, g.sota ? 'сота: деформации в натуральную величину' :
+            'деформации на рисунке увеличены в ' + UVELICH + ' раз', 17, 'rgba(' + mut + ',.95)', 'left');
+    obrazec(ctx, g, geo, ink, mut, acc);
+    sechenie(ctx, g, geo, ink, mut);
+    pokazaniya(ctx, g, ink, mut);
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+
+  function vybrat(id) {
+    var q = PO_ID[id];
+    S.nabor = id; S.sota = q.sota; S.mu = q.mu;
+    obnovit();
+  }
+  function dvigatMu(v) {
+    var mu = muDlya(Math.round(v * 100) / 100, S.sota);
+    if (mu === S.mu) return;
+    S.mu = mu;
+    var q = PO_ID[S.nabor];
+    if (!q || q.mu !== mu || q.sota !== S.sota) S.nabor = null;
+    obnovit();
+  }
+  function dvigatPoz(v) {
+    S.anim = false;
+    S.poz = Math.max(0, Math.min(POZ, Math.round(v))); S.pozUi = S.poz;
+    obnovit();
+  }
+  function tyanut() {
+    S.anim = !S.anim;
+    if (S.anim) S.t = Math.acos(1 - 2 * S.poz / POZ) / (2 * Math.PI) * 4;   /* с нынешнего удлинения */
+    obnovit();
+  }
+
+  /* Для автопроверки: __demoSet({ nabor, mu, sota, poz, eps, anim }) ставит
+     ручки (mu проходит те же ограничения, что ползунок); __demoModel — куски
+     счёта для сверки и отрицательного контроля. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.nabor) { var q = PO_ID[o.nabor]; S.nabor = o.nabor; S.sota = q.sota; S.mu = q.mu; }
+    if (o.sota != null) { S.sota = !!o.sota; S.nabor = null; }
+    if (o.mu != null) { S.mu = muDlya(o.mu, S.sota); S.nabor = null; }
+    if (o.poz != null) S.poz = o.poz;
+    if (o.eps != null) S.poz = o.eps / (S.sota ? EPS_SOTA : EPS_SPL) * POZ;
+    if (o.anim != null) { S.anim = !!o.anim; if (S.anim) S.t = Math.acos(1 - 2 * S.poz / POZ) / (2 * Math.PI) * 4; }
+    S.pozUi = Math.round(S.poz);
+    obnovit();
+    return pokaz;
+  };
+  window.__demoModel = { sploshnoe: sploshnoe, sota: sota, muSoty: muSoty, ugolPoMu: ugolPoMu,
+                         reshetka: reshetka, dlinyStenok: dlinyStenok, muDlya: muDlya, NABOR: NABOR,
+                         EPS_SPL: EPS_SPL, EPS_SOTA: EPS_SOTA, UVELICH: UVELICH, HL: HL };
+
+  /* ── строка показаний ── */
+
+  function slova() {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var g = pokaz, sr = g.sota, P = function (x) { return proc(x, sr) + ' %'; };
+    var mu = g.mu, txt;
+    if (g.eps <= 0) {
+      return sr
+        ? 'Сота из жёстких стенок на шарнирах. Потяните ползунок удлинения или нажмите «Тянуть и отпускать»: решётка растягивается вдоль, а поперёк её размер выходит из того, как повернулись стенки.'
+        : 'Образец не растянут. Потяните ползунок удлинения или нажмите «Тянуть и отпускать»; ползунок μ задаёт, как образец меняется поперёк.';
+    }
+    if (sr) {
+      if (g.th0 < 0) {
+        txt = 'Сота из жёстких стенок на шарнирах, ячейки вогнутые: наклонные стенки смотрят внутрь. Растяжение вдоль поворачивает их к оси растяжения, ячейки раскрываются, и вертикальные стенки расходятся: удлинившись на ' +
+          A(P(g.eps)) + ', сота раздалась поперёк на ' + A(P(g.epsPerp)) + '. ';
+      } else {
+        txt = 'Те же стенки на тех же шарнирах, но ячейки выпуклые: наклонные стенки смотрят наружу. Растяжение вдоль снова поворачивает их к оси растяжения, и теперь вертикальные стенки сходятся: удлинившись на ' +
+          A(P(g.eps)) + ', сота сузилась поперёк на ' + A(P(-g.epsPerp)) + '. Знак μ задаёт геометрия ячейки, стенки и шарниры прежние. ';
+      }
+      txt += 'Ползунок задаёт μ малых растяжений, ' + A(num(g.muTan, 2)) + '; сейчас −ε⊥/ε = ' + A(num(g.muSec, 2)) +
+        (Math.abs(g.muSec - g.muTan) > 0.02 ? ': угол стенок уже заметно сменился, и отношение вместе с ним. ' : ', почти столько же. ') +
+        'Если в глубину ячейки такие же, объём ' + (g.dV >= 0 ? 'вырос' : 'уменьшился') + ' на ' + A(P(Math.abs(g.dV))) + ', а формула малых деформаций (1 − 2μ)ε дала бы ' + P(g.dVlin) + '.';
+      if (g.muSec > MU_MAX || g.muSec < MU_MIN)
+        txt += ' Отношение вышло за ' + (g.muSec > MU_MAX ? '1/2' : '−1') + ', потому что деформация уже большая: пределы −1 < μ < 1/2 глава выводит для малых деформаций упругого тела.';
+      if (g.th0 < 0) txt += ' Уведите μ выше нуля: стенки наклонятся наружу, и та же сота начнёт сужаться.';
+      if (Math.abs(mu) <= MU_SOTA_MIN + 1e-9) txt += ' Ближе к нулю ползунок не идёт: стенки встали бы вертикально, и ячейка выродилась бы.';
+      if (g.vypr) txt += ' Наклонные стенки выпрямились в линию: дальше сота тянется, только растягивая сами стенки, а на шарнирах этого нет.';
+      return txt;
+    }
+    var vol = 'Объём есть произведение трёх рёбер, при малых деформациях относительные изменения складываются: ΔV/V = ε − 2με = (1 − 2μ)ε = ' + A(P(g.dV)) + '.';
+    if (g.nabor === 'stal') {
+      txt = 'Сталь, μ = 0,30. Растянутый на ' + A(P(g.eps)) + ' образец стал тоньше на ' + A(P(-g.epsPerp)) +
+        ' по обеим поперечным осям, сечение справа осталось квадратом. Проволока диаметром 1 мм станет тоньше на ' + num(-g.epsPerp * 1000, 2) + ' мкм. ' + vol +
+        ' Удлинение вдоль перевешивает два сужения поперёк, пока μ < 1/2.';
+    } else if (g.nabor === 'rezina') {
+      txt = 'Резина, μ = 0,499, почти 1/2. Поперёк она сужается вдвое слабее, чем удлиняется вдоль, зато по двум осям сразу, и два сужения почти съедают удлинение: объём вырос всего на ' +
+        A(P(g.dV)) + ', в 500 раз меньше удлинения. При μ = 1/2 объём не менялся бы совсем: это предел несжимаемого тела, модуль всестороннего сжатия K = E/3(1 − 2μ) там обращается в бесконечность.';
+    } else if (g.nabor === 'probka') {
+      txt = 'Пробка, μ около нуля: растянутая вдоль, поперёк она не меняется, и объём растёт на всё удлинение, ΔV/V = ε = ' + A(P(g.dV)) +
+        '. Поэтому пробку и легко вставить в горлышко бутылки: сжатая вдоль, она не раздаётся вширь.';
+    } else if (mu < 0) {
+      txt = 'μ = ' + muTxt(mu).replace(/,00$/, '') + ' меньше нуля: растянутый вдоль, образец раздался и поперёк, на ' + A(P(g.epsPerp)) + '. ' + vol +
+        ' Объём растёт быстрее удлинения. Сплошное на вид тело так ведёт себя, когда внутри у него особое строение; какое, показывает кнопка «ауксетик-сота».';
+    } else if (mu === 0) {
+      txt = 'μ = 0: поперёк образец не меняется, и объём растёт на всё удлинение, ΔV/V = ε = ' + A(P(g.dV)) + '.';
+    } else {
+      txt = 'μ = ' + muTxt(mu) + ': растянутый на ' + A(P(g.eps)) + ' образец стал тоньше на ' + A(P(-g.epsPerp)) + ' по обеим поперечным осям. ' + vol;
+    }
+    if (mu >= MU_MAX - 1e-9 && g.nabor !== 'rezina')
+      txt += ' μ = 1/2 есть предел: объём не меняется вовсе, а при μ > 1/2 модуль всестороннего сжатия K = E/3(1 − 2μ) стал бы отрицательным, и с ним энергия сжатого тела.';
+    if (mu <= MU_MIN + 1e-9)
+      txt += ' μ = −1 есть предел снизу: модуль сдвига G = E/2(1 + μ) здесь обращается в бесконечность, а при μ < −1 стал бы отрицательным, и с ним энергия сдвига.';
+    return txt;
+  }
+
+  var mu = S.mu;
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Материал:">
+          ${NABOR.map(function (q) {
+            return html`<${C.Btn} key=${q.id} active=${S.nabor === q.id} onClick=${function () { vybrat(q.id); }}>${q.knopka}<//>`; })}
+        <//>
+        <${C.Slider} label="Пуассон:" min=${MU_MIN} max=${MU_MAX} step=${0.01} value=${mu}
+                     onChange=${dvigatMu} display=${muTxt(mu)} />
+        <${C.Slider} label="Удлинение:" min=${0} max=${POZ} step=${1} value=${Math.round(S.poz)}
+                     onChange=${dvigatPoz} display=${proc(epsDlya(S.poz, S.sota), S.sota) + ' %'} />
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${tyanut}>${S.anim ? 'Стоп' : 'Тянуть и отпускать'}<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Puasson);
+</script>
+</body>
+</html>

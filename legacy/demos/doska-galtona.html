@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Доска Гальтона</title>
+<link rel="stylesheet" href="../shared/demo.css">
+<style>
+/* Местные правила, как у «изотермы»: demo.css общий. Строка показаний
+   держит высоту самой длинной своей фразы: под видимым текстом лежит
+   невидимая фраза с наибольшими числами, жирным, то есть с запасом.
+   Без этого холст прыгал бы на строку, пока зёрна сыплются и числа
+   меняют длину. */
+.status.galton-status { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.galton-status > span, .galton-status::before { grid-area: 1 / 1; }
+.galton-status::before { visibility: hidden; font-weight: 600; content: attr(data-ten); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-12/">&larr; Неделя 12</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=doska-galtona"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Производство двенадцатой недели (бриф briefs/proizvodstvo12.md, раздел
+   «Демки: пять исполнителей», D5; опись briefs/lekciya12_demki_minuty.md,
+   §1.5; решения автора briefs/lekciya12_resheniya_ramki.md, п. 11). Блок
+   главы raspredelenie-gaussa, обёртка raspredeleniya/demka-doska-galtona.
+
+   МОДЕЛЬ. Зерно проходит n рядов и в каждом сдвигается на случайный шаг,
+   шаги независимы и одинаково распределены. Номер ячейки, куда зерно
+   падает, есть n/2 плюс сумма шагов; ячейка k собирает зёрна с суммой
+   в [k − ½, k + ½). Шаг задан одним из трёх законов, у всех среднее 0 и
+   дисперсия ¼ ячейки²:
+     ±½      налево или направо на полъячейки с вероятностью ½ (настоящая
+             доска со штырями); номер ячейки тогда биномиален, Bin(n, ½);
+     равномерный  шаг равномерен на [−a, a], a = √3/2 ≈ 0,866, дисперсия
+             a²/3 = ¼;
+     нормальный   шаг гауссов со средним 0 и σ = ½ (Бокс–Мюллер).
+   Поэтому у всех трёх законов дисперсия суммы n/4 и σ = √n/2 ячейки:
+   при 12 рядах 1,732. Кривая на гистограмме есть Гаусс той же дисперсии,
+   N·φ(x), где φ плотность нормального закона со средним n/2 и σ = √n/2
+   (ширина ячейки 1). Колокол выходит один при любом из трёх законов шага:
+   к Гауссу сходятся суммы независимых величин с конечной дисперсией.
+
+   СЛУЧАЙНЫЕ ЧИСЛА. Генератор mulberry32 с зерном seed (32-битная
+   арифметика, Math.imul); каждое зерно тратит n чисел (±½, равномерный)
+   или 2n (нормальный: u1, u2 на каждый шаг, z = √(−2 ln(1 − u1))·cos 2πu2,
+   синус отбрасывается). Поток один и тот же при любой порции подсыпки,
+   поэтому гистограмма первых N зёрен при данных n, законе и seed одна
+   и та же, сыплются ли зёрна по одному или сразу. На этом стоит сверка:
+   python (briefs/lekciya12_skripty/proizvodstvo/doska-galtona.py) тем же
+   генератором получает те же гистограммы до зерна.
+   Когда ползунок зёрен идёт вниз, демка не пересчитывает гистограмму:
+   на каждой ступени ZERNA подсыпка кладёт снимок (гистограмма, ушедшие
+   за край, суммы d и d²), откат берёт снимок и ставит генератор на
+   N-е зерно (mulberry32 с пропуском N·n или N·2n чисел). Снимок совпадает
+   с чистым счётом первых N зёрен, это проверяет hcheck.
+
+   ЧТО ПОКАЗЫВАЕТ СТРОКА. Центральная ячейка kц = ⌊n/2⌋. Гаусс ждёт в ней
+   N·pГ зёрен, где pГ = ∫ φ по ячейке [kц − ½, kц + ½] (Симпсон, 200
+   отрезков, ошибка меньше 10⁻¹⁰ при n ≥ 2; 32 отрезка давали 2·10⁻⁸ при
+   n = 2). При 12 рядах pГ = 0,2272. Нарисованная кривая N·φ(x) над
+   серединой ячейки стоит выше N·pГ: φ выпукла вверх у вершины. При двух
+   рядах φ(1) = 0,5642, pГ = 0,5205, бином 0,5: кривая над центральным
+   столбиком выше бинома на 12,8 %, а строка пишет −3,9 % (0,5/0,5205 − 1).
+   Обёртка называет обе меры.
+   Шум центра есть относительный разброс счёта в ячейке. Каждое зерно
+   попадает в неё с вероятностью p независимо от других, счёт биномиален,
+   и разброс √((1 − p)/(N p)). Здесь p вероятность ячейки по самому закону
+   шага: у ±½ биномиальная C(n, kц)/2ⁿ (0,2256 при 12 рядах), у
+   нормального pГ, у равномерного тоже pГ (точная, по Ирвину–Холлу,
+   0,2245 при 12 рядах; шум от этого меняется на 0,8 % своей величины).
+   При 12 рядах и шаге ±½ шум 18,5, 5,9 и 1,9 % при 100, 1000 и 10⁴
+   зёрнах, на экране «19», «6» и «2 %», как в главе (raspredelenie-gaussa:
+   19 и 2 %). Опись и бриф D5 пишут 21, 7 и 2 %: это пуассонова оценка
+   1/√(N p) без множителя 1 − p, она в state.shumPuasson.
+   Разброс по зёрнам σ = √(⟨d²⟩ − ⟨d⟩²), d = x − n/2, по всем упавшим
+   зёрнам, включая ушедшие за край картинки.
+
+   БИНОМ ПРОТИВ ГАУССА (state.binomOtGaussa, на экране не пишется).
+   max_k |C(n,k)/2ⁿ − φ(k)|, делённое на биномиальную вероятность
+   центральной ячейки: при 12 рядах 0,02103, то есть 2,1 % (опись: «не
+   больше чем на 2,1 % центральной ячейки»). Против вероятности ячейки
+   по Гауссу (интеграл, а не значение в середине) центр бинома ниже на
+   0,7 %: 0,2256 против 0,2272; это различимо только у сотни тысяч зёрен,
+   где шум 0,59 %. У равномерного шага центр ниже Гаусса на 1,2 %.
+
+   ЧИСЛА (python и этот код, hcheck на порту 49969): σ = 1,7321 при n = 12,
+   3,1623 при n = 40; binomOtGaussa 0,02103 при n = 12; pГ = 0,22717;
+   шум центра при шаге ±½ 0,1853, 0,0586, 0,0185 при 100, 1000, 10⁴
+   зёрнах; пуассонова оценка описи 0,2098, 0,0663, 0,0210.
+
+   КАРТИНКА. Ячейки на экране от kmin = min(0, ⌊n/2 − 4,5σ⌋) до n − kmin:
+   у закона ±½ крайние ячейки за доской пусты, у равномерного и
+   нормального туда изредка попадают зёрна. Зёрна за этими пределами
+   (у нормального закона при 12 рядах одно на миллион) считаются в
+   state.zaKraem и в разбросе. Пока зёрна сыплются, несколько из них летят
+   по доске своими настоящими путями; полёт только рисунок, в гистограмме
+   зерно учтено сразу. Темп подсыпки dN/dt = max(40, 3N) зёрен в секунду:
+   первые десятки по одному, дальше порядок за 0,77 с. */
+
+var ZERNA = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
+var ZERNA_STUPEN = {};
+ZERNA.forEach(function (v) { ZERNA_STUPEN[v] = true; });
+var RYADY_MIN = 2, RYADY_MAX = 40;
+var D_SHAGA = 0.25;                 /* дисперсия шага, ячейки² */
+var A_RAVN = Math.sqrt(3) / 2;      /* полуширина равномерного шага */
+var ZAKONY = ['pm', 'ravn', 'norm'];
+
+/* mulberry32: 32-битный генератор, равномерный на [0, 1). Состояние после
+   k чисел есть seed + k·0x6D2B79F5 по модулю 2³², поэтому генератор можно
+   поставить сразу на k-е число: skip = k. */
+function mulberry32(seed, skip) {
+  var a = ((seed | 0) + Math.imul(skip | 0, 0x6D2B79F5)) | 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    var t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shag(zakon, R) {
+  if (zakon === 'pm') return R() < 0.5 ? -0.5 : 0.5;
+  if (zakon === 'ravn') return (2 * R() - 1) * A_RAVN;
+  var u1 = R(), u2 = R();
+  return 0.5 * Math.sqrt(-2 * Math.log(1 - u1)) * Math.cos(2 * Math.PI * u2);
+}
+
+function sigmaTeor(n) { return Math.sqrt(n * D_SHAGA); }
+function kMin(n) { return Math.min(0, Math.floor(n / 2 - 4.5 * sigmaTeor(n))); }
+
+/* Плотность Гаусса со средним n/2 и σ = √n/2 в точке x (ячейки). */
+function phi(x, n) {
+  var s = sigmaTeor(n), d = (x - n / 2) / s;
+  return Math.exp(-d * d / 2) / (s * Math.sqrt(2 * Math.PI));
+}
+/* Вероятность ячейки k по Гауссу: интеграл φ по [k − ½, k + ½], Симпсон. */
+function pYachejki(k, n) {
+  var M = 200, h = 1 / M, s = phi(k - 0.5, n) + phi(k + 0.5, n);
+  for (var i = 1; i < M; i++) s += (i % 2 ? 4 : 2) * phi(k - 0.5 + i * h, n);
+  return s * h / 3;
+}
+/* Бином Bin(n, ½) рекуррентно. */
+function binom(n) {
+  var p = [Math.pow(2, -n)];
+  for (var k = 0; k < n; k++) p.push(p[k] * (n - k) / (k + 1));
+  return p;
+}
+/* Наибольшее отклонение бинома от Гаусса той же дисперсии в серединах
+   ячеек, в долях биномиальной вероятности центральной ячейки. */
+function binomOtGaussa(n) {
+  var p = binom(n), mx = 0, pc = 0;
+  for (var k = 0; k <= n; k++) { mx = Math.max(mx, Math.abs(p[k] - phi(k, n))); pc = Math.max(pc, p[k]); }
+  return mx / pc;
+}
+/* Вероятность центральной ячейки по закону шага (для шума): у ±½ бином,
+   у непрерывных законов Гаусс по ячейке. */
+function pCentra(n, zakon) {
+  var kc = Math.floor(n / 2);
+  return zakon === 'pm' ? binom(n)[kc] : pYachejki(kc, n);
+}
+/* Шум счёта центральной ячейки: счёт биномиален, √((1 − p)/(N p)). */
+function shumCentra(n, N, zakon) { var p = pCentra(n, zakon || 'pm'); return Math.sqrt((1 - p) / (N * p)); }
+/* Пуассонова оценка описи, 1/√(N pГ). */
+function shumPuasson(n, N) { return 1 / Math.sqrt(N * pYachejki(Math.floor(n / 2), n)); }
+
+/* Доска: n рядов, закон шага, зерно генератора. zerno(put) бросает одно
+   зерно; если дан массив put, в него ложатся положения после каждого ряда. */
+function Doska(n, zakon, seed) {
+  this.n = n; this.zakon = zakon; this.seed = seed;
+  this.R = mulberry32(seed);
+  this.kLo = kMin(n); this.kHi = n - this.kLo;
+  this.hist = [];
+  for (var k = this.kLo; k <= this.kHi; k++) this.hist.push(0);
+  this.zeren = 0; this.zaKraem = 0; this.s1 = 0; this.s2 = 0;
+  this.snimki = {};
+}
+/* Чисел генератора на зерно: n у ±½ и равномерного, 2n у нормального. */
+Doska.prototype.chiselNaZerno = function () { return this.zakon === 'norm' ? 2 * this.n : this.n; };
+/* Откат к первым N зёрнам по снимку на ступени ZERNA, без пересчёта:
+   гистограмма и суммы из снимка, генератор встаёт на N-е зерно. Дальше
+   подсыпка идёт тем же потоком, что и с нуля. Нет снимка: false. */
+Doska.prototype.otkatit = function (N) {
+  var s = this.snimki[N];
+  if (!s || N > this.zeren) return false;
+  this.hist = s.hist.slice(); this.zaKraem = s.zaKraem; this.s1 = s.s1; this.s2 = s.s2; this.zeren = N;
+  this.R = mulberry32(this.seed, N * this.chiselNaZerno());
+  return true;
+};
+Doska.prototype.zerno = function (put) {
+  var x = this.n / 2;
+  if (put) put.push(x);
+  for (var r = 0; r < this.n; r++) {
+    x += shag(this.zakon, this.R);
+    if (put) put.push(x);
+  }
+  var k = Math.floor(x + 0.5), d = x - this.n / 2;
+  if (k >= this.kLo && k <= this.kHi) this.hist[k - this.kLo]++;
+  else this.zaKraem++;
+  this.zeren++; this.s1 += d; this.s2 += d * d;
+  if (ZERNA_STUPEN[this.zeren])
+    this.snimki[this.zeren] = { hist: this.hist.slice(), zaKraem: this.zaKraem, s1: this.s1, s2: this.s2 };
+};
+
+function itogi(D) {
+  var n = D.n, N = D.zeren, kc = Math.floor(n / 2), pc = pYachejki(kc, n);
+  var m = N ? D.s1 / N : 0, s = N ? Math.sqrt(Math.max(0, D.s2 / N - m * m)) : 0;
+  var vC = D.hist[kc - D.kLo], zhdyot = N * pc;
+  return {
+    n: n, zakon: D.zakon, seed: D.seed, zeren: N, kLo: D.kLo, kHi: D.kHi,
+    hist: D.hist.slice(), zaKraem: D.zaKraem,
+    srednee: n / 2 + m, sigmaZeren: s, sigmaGaussa: sigmaTeor(n),
+    centr: { k: kc, zeren: vC, zhdyot: zhdyot, pYachejki: pc, otkl: N ? vC / zhdyot - 1 : 0 },
+    shum: N ? shumCentra(n, N, D.zakon) : null,
+    shumPuasson: N ? shumPuasson(n, N) : null,
+    binomOtGaussa: binomOtGaussa(n)
+  };
+}
+
+/* Чистый счёт для сверки: гистограмма первых N зёрен. */
+function gistogramma(n, zakon, N, seed) {
+  var D = new Doska(n, zakon, seed);
+  for (var i = 0; i < N; i++) D.zerno(null);
+  return itogi(D);
+}
+
+/* Русская запятая, настоящий минус, неразрывный пробел в тысячах. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+function tys(v) { return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+function znak(v, d) { var s = num(v, d); return v > 0 && s !== num(0, d) ? '+' + s : s; }
+/* ── конец чистой физики ── */
+
+var W = 1000, HGT = 460;
+var X0 = 30, X1 = 970;
+var Y_TOP = 92, Y_BOT = 200;        /* доска: первый ряд и выход */
+var YT = 232, YB = 420;             /* гистограмма: верх и ось */
+var CV_ZERNO = '94,170,255';        /* зёрна и столбики */
+var CV_GAUSS = '255,140,90';        /* кривая Гаусса */
+var OPIS = { pm: 'шаг ±½ ячейки', ravn: 'шаг равномерный от −0,87 до +0,87', norm: 'шаг нормальный с σ = ½' };
+var PODPIS = { pm: '±½', ravn: 'равномерный', norm: 'нормальный' };
+
+/* Длиннейшая фраза строки: держит её высоту (правило .galton-status). */
+var TEN = '100 000 зёрен, 40 рядов, шаг равномерный от −0,87 до +0,87. Разброс по зёрнам σ = 3,16, у Гаусса √n/2 = 3,16 ячейки. ' +
+  'В центральной ячейке 12 618 зёрен, Гаусс ждёт 12 618: отклонение −10,8 % при шуме около 10 %.';
+
+function Galton() {
+  var B = useRef(null);
+  if (!B.current) B.current = { n: 12, zakon: 'pm', iN: 3, seed: 1, D: null, dolg: 0, polety: [] };
+  var b = B.current;
+  if (!b.D) b.D = new Doska(b.n, b.zakon, b.seed);
+  var _t = useState(0), tik = _t[1];
+  function obnovit() { tik(function (x) { return x + 1; }); }
+
+  function cel() { return ZERNA[b.iN]; }
+  function sypletsya() { return b.D.zeren < cel(); }
+  function sostoyanie() {
+    var s = itogi(b.D);
+    s.N = cel(); s.sypletsya = sypletsya(); s.polety = b.polety.length;
+    return s;
+  }
+  window.__demoState = sostoyanie();
+
+  function dlitPoleta() { return 0.35 + 0.025 * b.n; }
+
+  /* Подсыпка: dN/dt = max(40, 3N) зёрен в секунду. Первое зерно
+     каждой порции летит по доске своими путями. */
+  function step(dt) {
+    var zhivye = false;
+    if (sypletsya()) {
+      var c = b.D.zeren;
+      b.dolg += Math.max(40 * dt, c * (Math.exp(3 * dt) - 1));
+      var m = Math.min(Math.floor(b.dolg), cel() - c);
+      b.dolg -= m;
+      for (var i = 0; i < m; i++) {
+        var put = i === 0 && b.polety.length < 30 ? [] : null;
+        b.D.zerno(put);
+        if (put) b.polety.push({ put: put, t: 0 });
+      }
+      if (!sypletsya()) b.dolg = 0;
+      zhivye = true;
+    }
+    if (b.polety.length) {
+      var T = dlitPoleta();
+      b.polety.forEach(function (p) { p.t += dt; });
+      b.polety = b.polety.filter(function (p) { return p.t < T; });
+      zhivye = true;
+    }
+    if (zhivye) { window.__demoState = sostoyanie(); obnovit(); }
+  }
+
+  function px(k) { var bw = (X1 - X0) / (b.D.kHi - b.D.kLo + 1); return X0 + (k - b.D.kLo + 0.5) * bw; }
+
+  function risDosku(ctx, tone) {
+    var n = b.n, dy = (Y_BOT - Y_TOP) / n, bw = (X1 - X0) / (b.D.kHi - b.D.kLo + 1);
+    var rp = C.clamp(Math.min(bw, dy) * 0.24, 2, 5);
+    for (var r = 0; r < n; r++) {
+      var y = Y_TOP + r * dy;
+      if (b.zakon === 'pm') {
+        ctx.fillStyle = 'rgba(' + tone.ink + ',.6)';
+        for (var j = 0; j <= r; j++) {
+          ctx.beginPath(); ctx.arc(px(n / 2 - r / 2 + j), y, rp, 0, 6.284); ctx.fill();
+        }
+      } else {
+        /* у непрерывного шага штырей нет: ряд отмечен чертой */
+        ctx.strokeStyle = 'rgba(' + tone.ink + ',.28)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(px(n / 2 - r / 2 - 0.5), y); ctx.lineTo(px(n / 2 + r / 2 + 0.5), y); ctx.stroke();
+      }
+    }
+    /* воронка над первым рядом */
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.55)'; ctx.lineWidth = 2;
+    var xc = px(n / 2);
+    ctx.beginPath(); ctx.moveTo(xc - 34, Y_TOP - 34); ctx.lineTo(xc - 9, Y_TOP - 12);
+    ctx.moveTo(xc + 34, Y_TOP - 34); ctx.lineTo(xc + 9, Y_TOP - 12); ctx.stroke();
+    /* летящие зёрна */
+    var T = dlitPoleta(), rz = 5;
+    b.polety.forEach(function (p) {
+      var s = p.t / T * (n + 1), x, y;
+      if (s < n) {
+        var r = Math.floor(s), f = s - r;
+        x = p.put[r] + (p.put[r + 1] - p.put[r]) * f;
+        y = Y_TOP + (r + f) * dy - rp - rz - Math.sin(Math.PI * f) * dy * 0.35;
+      } else {
+        x = p.put[n]; y = Y_BOT + (s - n) * (YT - Y_BOT);
+      }
+      var X = X0 + (x - b.D.kLo + 0.5) * bw;
+      C.glow(ctx, X, y, 14, CV_ZERNO, .4);
+      ctx.fillStyle = 'rgb(' + CV_ZERNO + ')';
+      ctx.beginPath(); ctx.arc(X, y, rz, 0, 6.284); ctx.fill();
+    });
+  }
+
+  function risGistogrammu(ctx, tone, S) {
+    var n = b.n, bw = (X1 - X0) / (S.kHi - S.kLo + 1), N = S.zeren;
+    var pik = phi(n / 2, n), mx = 0;
+    S.hist.forEach(function (v) { mx = Math.max(mx, v); });
+    var ymax = Math.max(1.25 * N * pik, 1.05 * mx, 1);
+    function yv(v) { return YB - v / ymax * (YB - YT); }
+    /* столбики */
+    S.hist.forEach(function (v, i) {
+      if (!v) return;
+      var x = X0 + i * bw, gap = Math.min(3, bw * 0.12);
+      ctx.fillStyle = 'rgba(' + CV_ZERNO + ',.5)';
+      ctx.fillRect(x + gap, yv(v), bw - 2 * gap, YB - yv(v));
+      ctx.fillStyle = 'rgba(' + CV_ZERNO + ',1)';
+      ctx.fillRect(x + gap, yv(v), bw - 2 * gap, 2);
+    });
+    /* центральная ячейка обведена */
+    var ic = S.centr.k - S.kLo, xc0 = X0 + ic * bw;
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.75)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(xc0 + 1, yv(S.hist[ic]) - 1, bw - 2, YB - yv(S.hist[ic]) + 1);
+    /* ось и номера ячеек */
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(X0, YB); ctx.lineTo(X1, YB); ctx.stroke();
+    var shagi = [1, 2, 5, 10], st = 1;
+    for (var q = 0; q < shagi.length; q++) { st = shagi[q]; if ((n + 1) / st <= 12) break; }
+    for (var k = 0; k <= n; k += st)
+      C.label(ctx, px(k), YB + 24, String(k), 17, 'rgba(' + tone.muted + ',.95)');
+    if (!N) return;
+    /* Гаусс той же дисперсии */
+    ctx.strokeStyle = 'rgb(' + CV_GAUSS + ')'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (var i = 0; i <= 400; i++) {
+      var xk = S.kLo - 0.5 + i / 400 * (S.kHi - S.kLo + 1), X = X0 + (xk - S.kLo + 0.5) * bw, Y = yv(N * phi(xk, n));
+      if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+    }
+    ctx.stroke();
+    /* σ отрезком от середины на высоте кривой при отклонении σ */
+    var sg = S.sigmaGaussa, ys = yv(N * phi(n / 2 + sg, n)), xa = px(n / 2), xb = px(n / 2 + sg);
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.9)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(xa, ys); ctx.lineTo(xb, ys);
+    ctx.moveTo(xa, ys - 6); ctx.lineTo(xa, ys + 6); ctx.moveTo(xb, ys - 6); ctx.lineTo(xb, ys + 6); ctx.stroke();
+    C.label(ctx, xb + 8, ys + 6, 'σ', 19, 'rgb(' + tone.ink + ')', 'left');
+    /* легенда */
+    C.label(ctx, X1, YT - 6, 'Гаусс той же дисперсии', 17, 'rgb(' + CV_GAUSS + ')', 'right');
+    C.label(ctx, X0, YT - 6, 'зёрна по ячейкам', 17, 'rgb(' + CV_ZERNO + ')', 'left');
+  }
+
+  /* Кадр считает показания заново: __demoTick в скрытой вкладке двигает
+     подсыпку и рисует раньше, чем React перерисует разметку. */
+  function draw(ctx) {
+    var tone = C.tones(ctx), S = sostoyanie();
+    window.__demoState = S;
+    risDosku(ctx, tone);
+    risGistogrammu(ctx, tone, S);
+    C.readout(ctx, 250, 26, 'ЗЁРЕН', tys(S.zeren), 'rgb(' + tone.accent + ')');
+    C.readout(ctx, 990, 26, 'σ ПО ЗЁРНАМ / ГАУССА', S.zeren > 1 ? num(S.sigmaZeren, 2) + ' / ' + num(S.sigmaGaussa, 2) : '—', 'rgb(' + tone.ink + ')');
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+  function zanovo(n, zakon, seed) {
+    b.n = n; b.zakon = zakon; b.seed = seed;
+    b.D = new Doska(n, zakon, seed); b.dolg = 0; b.polety = [];
+  }
+  function postavitRyady(v) {
+    var n = Math.round(C.clamp(v, RYADY_MIN, RYADY_MAX));
+    if (n !== b.n) { zanovo(n, b.zakon, b.seed); obnovit(); }
+  }
+  function postavitZerna(v) {
+    var i = Math.round(C.clamp(v, 0, ZERNA.length - 1));
+    if (i === b.iN) return;
+    /* меньше зёрен: те же первые N сразу, без полёта, по снимку */
+    if (ZERNA[i] < b.D.zeren) umenshit(ZERNA[i]);
+    b.iN = i; obnovit();
+  }
+  function umenshit(N) {
+    if (!b.D.otkatit(N)) {
+      zanovo(b.n, b.zakon, b.seed);
+      for (var j = 0; j < N; j++) b.D.zerno(null);
+    }
+    b.dolg = 0; b.polety = [];
+  }
+  function postavitZakon(z) { if (z !== b.zakon) { zanovo(b.n, z, b.seed); obnovit(); } }
+  function eshchyo() { zanovo(b.n, b.zakon, b.seed + 1); obnovit(); }
+
+  /* Для автопроверки: __demoSet({ n, zakon, N, seed, srazu }) ставит ручки;
+     srazu: true досыпает до N без анимации. __demoModel даёт счёт. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    var n = o.n != null ? Math.round(C.clamp(o.n, RYADY_MIN, RYADY_MAX)) : b.n;
+    var z = o.zakon != null && ZAKONY.indexOf(o.zakon) >= 0 ? o.zakon : b.zakon;
+    var sd = o.seed != null ? o.seed : b.seed;
+    if (o.N != null) {
+      var best = 0;
+      ZERNA.forEach(function (v, i) { if (Math.abs(Math.log(v / o.N)) < Math.abs(Math.log(ZERNA[best] / o.N))) best = i; });
+      b.iN = best;
+    }
+    if (n !== b.n || z !== b.zakon || sd !== b.seed || o.zanovo) zanovo(n, z, sd);
+    else if (cel() < b.D.zeren) umenshit(cel());
+    if (o.srazu) { while (b.D.zeren < cel()) b.D.zerno(null); b.polety = []; }
+    window.__demoState = sostoyanie();
+    obnovit();
+    return window.__demoState;
+  };
+  window.__demoModel = { mulberry32: mulberry32, shag: shag, phi: phi, pYachejki: pYachejki, binom: binom,
+                         binomOtGaussa: binomOtGaussa, pCentra: pCentra, shumCentra: shumCentra, shumPuasson: shumPuasson, sigmaTeor: sigmaTeor, kMin: kMin,
+                         gistogramma: gistogramma, konst: { ZERNA: ZERNA, RYADY_MIN: RYADY_MIN, RYADY_MAX: RYADY_MAX,
+                         D_SHAGA: D_SHAGA, A_RAVN: A_RAVN } };
+
+  /* ── строка показаний ── */
+  function slova(S) {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    if (!S.zeren) return 'Зёрна сыплются: ' + S.n + ' ' + C.plural(S.n, 'ряд', 'ряда', 'рядов') + ', ' + OPIS[S.zakon] + '.';
+    var t = tys(S.zeren) + ' ' + C.plural(S.zeren, 'зерно', 'зерна', 'зёрен') + ', ' + S.n + ' ' + C.plural(S.n, 'ряд', 'ряда', 'рядов') +
+      ', ' + OPIS[S.zakon] + '. ';
+    if (S.zeren > 1)
+      t += 'Разброс по зёрнам σ = ' + num(S.sigmaZeren, 2) + ', у Гаусса √n/2 = ' + num(S.sigmaGaussa, 2) + ' ячейки. ';
+    var c = S.centr;
+    t += 'В центральной ячейке ' + tys(c.zeren) + ' ' + C.plural(c.zeren, 'зерно', 'зерна', 'зёрен') + ', Гаусс ждёт ' + tys(Math.round(c.zhdyot)) +
+      ': отклонение ' + A(znak(100 * c.otkl, 1) + ' %') + ' при шуме около ' + num(100 * S.shum, S.shum < 0.0095 ? 1 : 0) + ' %.';
+    return t;
+  }
+
+  var S = window.__demoState;
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Slider} label="Рядов:" min=${RYADY_MIN} max=${RYADY_MAX} step=${1} value=${b.n}
+                     onChange=${postavitRyady} display=${String(b.n)} />
+        <${C.Slider} label="Зёрен:" min=${0} max=${ZERNA.length - 1} step=${1} value=${b.iN}
+                     onChange=${postavitZerna} display=${tys(cel())} />
+        <${C.Group} label="Шаг:">
+          ${ZAKONY.map(function (z) {
+            return html`<${C.Btn} key=${z} active=${b.zakon === z} onClick=${function () { postavitZakon(z); }}>${PODPIS[z]}<//>`;
+          })}
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${eshchyo}>Ещё раз<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <div class="status galton-status" data-ten=${TEN}>
+        <span dangerouslySetInnerHTML=${{ __html: slova(S) }}></span>
+      </div>
+    </div>`;
+}
+
+C.mount(Galton);
+</script>
+</body>
+</html>

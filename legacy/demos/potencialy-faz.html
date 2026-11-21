@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Кто выигрывает</title>
+<link rel="stylesheet" href="../shared/demo.css">
+<style>
+/* Местные правила, как у изотермы Ван-дер-Ваальса: demo.css общий.
+   Строка показаний держит высоту самой длинной своей фразы, чтобы холст
+   под ней не прыгал при движении ползунка: под видимым текстом лежит
+   невидимая самая длинная фраза жирным, высоту задаёт большая из двух. */
+.status.pf-status { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.pf-status > span, .pf-status::before { grid-area: 1 / 1; }
+.pf-status::before { visibility: hidden; font-weight: 600; content: attr(data-ten); }
+/* «0,00100 атм» в одиннадцать знаков: ширина значения постоянная, рейка не дрожит. */
+.control-value { min-width: 11ch; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-11/">&larr; Неделя 11</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=potencialy-faz"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Три демки к лекции 12.11 (бриф briefs/proizvodstvo11_tri_demki.md,
+   раздел «Демка А»). Блоки главы fazovaya-diagramma, fazovoe-ravnovesie,
+   ris-mu-ot-t, uravnenie-klapejrona, ravnovesie-zhidkost-tverdoe;
+   обёртка fazovye-perehody/demka-potencialy-faz.
+
+   ЧТО СЧИТАЕТСЯ. Химический потенциал каждой фазы на моль как функция
+   температуры и давления, μ = h − T s плюс поправка давления. Устойчива
+   фаза с наименьшим μ; точка перехода там, где μ двух фаз равны, а третья
+   лежит выше. Слева три кривые μ(T) при давлении с ползунка, справа
+   плоскость T–P: линии плавления, кипения и возгонки суть множества точек
+   равенства μ двух фаз, посчитанные из тех же функций.
+
+   ВОДА. Модель того же вида, что у рисунка ris-mu-ot-t (briefs/
+   lekciya11_skripty/risunki/r2_mu_ot_t.py): у каждой фазы постоянная c_p,
+   поэтому h(T) = h(T₀) + c_p (T − T₀), s(T) = s(T₀) + c_p ln(T/T₀); пар
+   идеальный газ. Доработка 11.11 по указанию генеральной сессии: модель
+   построена от справочной тройной точки, 273,16 К и 611,657 Па, где три
+   потенциала равны по построению, чтобы демка не спорила с кадром перед
+   ней. Там теплота плавления 6010 Дж/моль, теплота испарения 45 054
+   Дж/моль (у тройной точки, глава «45,05»); c_p воды 75,3 Дж/(моль·К),
+   s(298,15 К) = 69,95 (CODATA), c_p льда 37,8. Теплоёмкость пара подобрана,
+   чтобы модель прошла через тройную точку и через 100 °C при 1 атм: μ пара
+   минус μ воды линейна по Δc_p, и условие при 373,15 К и 1 атм решается
+   одной формулой; выходит c_p пара 36,281 (Δc_p = −39,02) вместо 33,6 на
+   рисунке. Поправка давления: у пара RT ln(P/P_тр), у льда и воды
+   v (P − P_тр) с v = M/ρ, ρ = 916,7 и 999,84 кг/м³
+   (ravnovesie-zhidkost-tverdoe), M = 18,015 г/моль. Прежняя сшивка
+   рисунка (теплоты при 1 атм, c_p пара 33,6) давала тройную точку
+   0,0075 °C и 637,5 Па.
+
+   УГЛЕКИСЛЫЙ ГАЗ. Модель того же вида, построена от тройной точки
+   (Span, Wagner 1996: 216,592 К, 0,51795 МПа = 5,112 атм), где три
+   потенциала равны по построению. Данные:
+     теплота плавления 9,019 кДж/моль (Air Liquide, Gas Encyclopedia, по
+       странице данных Wikipedia «Carbon dioxide (data page)»);
+     теплота испарения такая, чтобы линия кипения выходила из тройной
+       точки с настоящим наклоном: q = T (dP/dT) (RT/P − v_ж), наклон по
+       вспомогательному уравнению давления пара Span–Wagner (3.13), то же,
+       что в tri-ampuly; выходит 16,78 кДж/моль. Калориметрическая теплота
+       15,42 кДж/моль (NIST WebBook, таблица насыщения) с идеальным паром
+       дала бы возгонку при 1 атм на 1,0 К ниже: настоящий пар в тройной
+       точке на 8 % плотнее идеального;
+     c_p твёрдого 54,55 Дж/(моль·К) при 189,78 К (Giauque, Egan 1937, по
+       той же странице), жидкости 85,96 (NIST, тройная точка), газа 33,0
+       (JANAF C-095 около 215 К);
+     плотности: жидкость 1178,46 кг/м³ (NIST, тройная точка), твёрдое
+       1562 кг/м³ при −78,5 °C (Wikipedia, «Carbon dioxide»);
+     абсолютная энтропия газа по JANAF (199,975 Дж/(моль·К) при 200 К и
+       1 бар). Общий сдвиг энтропий всех трёх фаз меняет только общий
+       наклон картинки слева, точки пересечения от него не зависят.
+
+   КАК ИЩЕТСЯ. Точка перехода двух фаз при данном давлении: делением
+   отрезка температур пополам по знаку μ_a − μ_b (разность монотонна:
+   энтропии фаз упорядочены во всём диапазоне). Тройная точка: делением
+   пополам по ln P, где сравниваются температуры кипения и плавления.
+   Линии плоскости: те же точки перехода на сетке из 241 давления.
+
+   ЧИСЛА (python briefs/lekciya11_skripty/proizvodstvo/potencialy_faz.py,
+   другими методами: Ньютон, двумерный Ньютон, явные P(T); совпали с этим
+   кодом до 10⁻⁶ К и лучше, см. отчёт):
+   вода: тройная точка 0,01 °C и 611,657 Па по построению; при 1 атм
+     плавление 0,0025 °C («0,00»), кипение 100,000 °C по подбору c_p пара;
+     лёд и пар на метастабильных продолжениях равны при 80,45 °C;
+   наклон плавления −132,9 атм/К (глава −133);
+   кипение при 2 атм 120,77 °C (таблица главы 120,6, Wagner–Pruss
+     120,63), при 5 атм 152,90 °C (Wagner–Pruss 152,33); возгонка при
+     0,001 атм −20,21 °C (IAPWS 2011 −20,20);
+   CO₂: тройная −56,558 °C и 5,112 атм (по построению); возгонка при 1 атм
+     −78,43 °C (справочно −78,46); кипение при 10 атм −39,52 °C
+     (Span–Wagner −39,77), при 20 атм −17,6 (−19,1); наклон плавления
+     44,8 атм/К. */
+
+var R = 8.314462618, ATM = 101325;
+
+/* Фаза: h и s в опорной точке Tr, c_p и молярный объём (null у газа). */
+function faza(h0, s0, Tr, cp, v) { return { h0: h0, s0: s0, Tr: Tr, cp: cp, v: v }; }
+
+var VODA = (function () {
+  var cpZh = 75.3, s298 = 69.95, M = 18.015e-3, Tt = 273.16, Pt = 611.657, qPl = 6010, qIsp = 45054;
+  var vZh = M / 999.84, vTt = M / 916.7;
+  var h = cpZh * (Tt - 298.15), s = s298 + cpZh * Math.log(Tt / 298.15);
+  /* c_p пара: кипение при 1 атм ровно 373,15 К. При общей точке отсчёта Tt
+     μ_п − μ_ж = q (1 − T/Tt) + Δc_p (T − Tt − T ln(T/Tt)) + RT ln(P/Pt) − v_ж (P − Pt),
+     и равенство нулю даёт Δc_p одной формулой. */
+  var T = 373.15, P = ATM;
+  var dcp = -(qIsp * (1 - T / Tt) + R * T * Math.log(P / Pt) - vZh * (P - Pt)) / (T - Tt - T * Math.log(T / Tt));
+  var cpG = cpZh + dcp;
+  return {
+    id: 'voda', Pref: Pt, Tlo: 200, Thi: 600, cpG: cpG,
+    tt: faza(h - qPl, s - qPl / Tt, Tt, 37.8, vTt),
+    zh: faza(h, s, Tt, cpZh, vZh),
+    g: faza(h + qIsp, s + qIsp / Tt, Tt, cpG, null)
+  };
+})();
+
+/* Давление пара CO₂ по Span–Wagner (3.13) и его логарифмическая производная. */
+var SW = { Tc: 304.1282, pc: 7.3773e6, a: [-7.0602087, 1.9391218, -1.6463597, -3.2995634], t: [1, 1.5, 2, 4] };
+function dlnpCO2(T) {
+  var th = 1 - T / SW.Tc, s = 0, ds = 0;
+  for (var i = 0; i < 4; i++) { s += SW.a[i] * Math.pow(th, SW.t[i]); ds += SW.a[i] * SW.t[i] * Math.pow(th, SW.t[i] - 1); }
+  return -SW.Tc / (T * T) * s - ds / T;
+}
+
+var CO2 = (function () {
+  var Tt = 216.592, Pt = 0.51795e6, M = 44.0098e-3;
+  var vZh = M / 1178.46, vTt = M / 1562;
+  var cpTt = 54.55, cpZh = 85.96, cpG = 33.0, qPl = 9019;
+  var qIsp = Tt * Pt * dlnpCO2(Tt) * (R * Tt / Pt - vZh);
+  var sG = 199.975 + cpG * Math.log(Tt / 200) - R * Math.log(Pt / 1e5);
+  var sZh = sG - qIsp / Tt, sTt = sZh - qPl / Tt;
+  return {
+    id: 'co2', Pref: Pt, Tlo: 120, Thi: 330, qIsp: qIsp,
+    tt: faza(-qPl, sTt, Tt, cpTt, vTt),
+    zh: faza(0, sZh, Tt, cpZh, vZh),
+    g: faza(qIsp, sG, Tt, cpG, null)
+  };
+})();
+
+/* Химический потенциал фазы f на моль, Дж/моль. */
+function mu(V, f, T, P) {
+  var F = V[f];
+  var m = F.h0 + F.cp * (T - F.Tr) - T * (F.s0 + F.cp * Math.log(T / F.Tr));
+  return m + (F.v == null ? R * T * Math.log(P / V.Pref) : F.v * (P - V.Pref));
+}
+
+/* Температура, где μ фаз a и b равны при давлении P: деление пополам. */
+function perehod(V, a, b, P) {
+  var lo = V.Tlo, hi = V.Thi;
+  var flo = mu(V, a, lo, P) - mu(V, b, lo, P), fhi = mu(V, a, hi, P) - mu(V, b, hi, P);
+  if (flo * fhi > 0) return null;
+  for (var i = 0; i < 200; i++) {
+    var m = 0.5 * (lo + hi);
+    if (m <= lo || m >= hi) break;
+    var fm = mu(V, a, m, P) - mu(V, b, m, P);
+    if (fm === 0) return m;
+    if (flo * fm < 0) hi = m; else { lo = m; flo = fm; }
+  }
+  return 0.5 * (lo + hi);
+}
+
+var PARY = { plav: ['tt', 'zh', 'g'], kip: ['zh', 'g', 'tt'], vozg: ['tt', 'g', 'zh'] };   /* пара и третья фаза */
+
+/* Тройная точка: при ней температуры кипения и плавления совпадают. */
+function trojnaya(V) {
+  var lo = Math.log(V.id === 'voda' ? 1e-4 * ATM : 0.5 * ATM), hi = Math.log(V.id === 'voda' ? ATM : 20 * ATM);
+  function g(u) { var P = Math.exp(u); return perehod(V, 'zh', 'g', P) - perehod(V, 'tt', 'zh', P); }
+  var glo = g(lo);
+  for (var i = 0; i < 200; i++) {
+    var m = 0.5 * (lo + hi);
+    if (m <= lo || m >= hi) break;
+    var gm = g(m);
+    if (glo * gm <= 0) hi = m; else { lo = m; glo = gm; }
+  }
+  var P = Math.exp(0.5 * (lo + hi)), T = perehod(V, 'tt', 'zh', P);
+  return { T: T, tC: T - 273.15, P: P, P_atm: P / ATM, P_Pa: P };
+}
+var TROJ = { voda: trojnaya(VODA), co2: trojnaya(CO2) };
+
+/* Точка перехода при давлении P: температура и устойчивость (третья фаза
+   не ниже двух равных; допуск 10⁻⁶ Дж/моль нужен ровно в тройной точке). */
+function tochka(V, kak, P) {
+  var p = PARY[kak], T = perehod(V, p[0], p[1], P);
+  if (T == null) return null;
+  var ust = mu(V, p[2], T, P) - mu(V, p[0], T, P) >= -1e-6;
+  return { T: T, tC: T - 273.15, ust: ust };
+}
+
+function ustojchivaya(V, T, P) {
+  var a = mu(V, 'tt', T, P), b = mu(V, 'zh', T, P), c = mu(V, 'g', T, P);
+  return a <= b && a <= c ? 'tt' : b <= c ? 'zh' : 'g';
+}
+
+function sostoyanie(vid, P) {
+  var V = vid === 'co2' ? CO2 : VODA, tr = TROJ[vid];
+  var S = { vid: vid, P: P, P_atm: P / ATM, P_Pa: P,
+            plav: tochka(V, 'plav', P), kip: tochka(V, 'kip', P), vozg: tochka(V, 'vozg', P),
+            trojnaya: tr };
+  S.v_trojnoj = S.plav.ust && S.kip.ust && S.vozg.ust;
+  S.nizhe = !S.v_trojnoj && P < tr.P;
+  S.zhidkost = S.plav.ust && S.kip.ust ? [S.plav.tC, S.kip.tC] : null;
+  return S;
+}
+
+/* Русская запятая и настоящий минус. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+/* Давление в атмосферах, три значащие цифры. */
+function atm(P) { return (P / ATM).toPrecision(3).replace('.', ','); }
+/* ── конец чистой физики ── */
+
+var NAZV = {
+  voda: { tt: 'лёд', zh: 'вода', g: 'пар', imya: 'воды' },
+  co2: { tt: 'твёрдое', zh: 'жидкость', g: 'газ', imya: 'углекислого газа' }
+};
+/* Оси: температура в °C, давление в атм (логарифм), ползунок. */
+var OSI = {
+  voda: { t0: -40, t1: 160, tTik: [-40, 0, 40, 80, 120, 160], p0: 6e-4, p1: 10, pTik: [1e-3, 0.01, 0.1, 1, 10],
+          pMin: 1e-3, pMax: Math.pow(10, 0.7) },
+  co2: { t0: -120, t1: -10, tTik: [-120, -100, -80, -60, -40, -20], p0: 0.07, p1: 20, pTik: [0.1, 1, 10],
+         pMin: 0.1, pMax: Math.pow(10, 1.3) }
+};
+/* Подписи областей и линий на плоскости: [t °C, P атм, текст или фаза, выравнивание]. */
+var METKI = {
+  voda: { oblasti: [[-20, 0.3, 'tt'], [70, 3, 'zh'], [90, 0.01, 'g']],
+          linii: [[2.5, 6.5, 'плавление', 'left'], [128, 1.6, 'кипение', 'left'], [4, 0.0017, 'возгонка', 'left']] },
+  co2: { oblasti: [[-100, 3, 'tt'], [-42, 16, 'zh'], [-70, 0.3, 'g']],
+         linii: [[-58.5, 14, 'плавление', 'right'], [-38, 6.2, 'кипение', 'left'], [-75, 0.6, 'возгонка', 'left']] }
+};
+
+var CV = { tt: '60,180,170', zh: '70,130,240', g: '235,120,60' };   /* лёд, вода, пар */
+
+var W = 1000, HGT = 460;
+var LX0 = 70, LX1 = 455, PY0 = 105, PY1 = 400;     /* левое окно: μ(T) */
+var RX0 = 590, RX1 = 975;                          /* правое окно: T–P */
+
+function XL(vid, tC) { var o = OSI[vid]; return LX0 + (tC - o.t0) / (o.t1 - o.t0) * (LX1 - LX0); }
+function XR(vid, tC) { var o = OSI[vid]; return RX0 + (tC - o.t0) / (o.t1 - o.t0) * (RX1 - RX0); }
+function YR(vid, Patm) {
+  var o = OSI[vid], a = Math.log10(o.p0), b = Math.log10(o.p1);
+  return PY1 - (Math.log10(Patm) - a) / (b - a) * (PY1 - PY0);
+}
+/* Окно по μ неподвижно для каждого вещества: по кривой жидкости при опорном
+   давлении. Лёд и жидкость с давлением почти не двигаются, кривая газа
+   ездит на RT ln P; при сдвиге окна это движение было бы не видно. */
+var OKNO = (function () {
+  var r = {};
+  [['voda', VODA], ['co2', CO2]].forEach(function (p) {
+    var o = OSI[p[0]], V = p[1];
+    var a = mu(V, 'zh', o.t0 + 273.15, V.Pref), b = mu(V, 'zh', o.t1 + 273.15, V.Pref), d = a - b;
+    r[p[0]] = { verh: a + 0.06 * d, niz: b - 0.12 * d };
+  });
+  return r;
+})();
+function YL(vid, m) { var k = OKNO[vid]; return PY0 + (k.verh - m) / (k.verh - k.niz) * (PY1 - PY0); }
+
+/* Линии плоскости: точки перехода на сетке давлений, куски устойчивые и
+   метастабильные; на смене устойчивости кусок замыкается тройной точкой. */
+var LINII = (function () {
+  var r = {};
+  [['voda', VODA], ['co2', CO2]].forEach(function (p) {
+    var vid = p[0], V = p[1], o = OSI[vid], tr = TROJ[vid], N = 240, lin = {};
+    Object.keys(PARY).forEach(function (kak) {
+      var kuski = [], tek = null;
+      for (var i = 0; i <= N; i++) {
+        var P = Math.pow(10, Math.log10(o.p0) + (Math.log10(o.p1) - Math.log10(o.p0)) * i / N) * ATM;
+        var t = tochka(V, kak, P);
+        if (!t) { tek = null; continue; }
+        if (!tek || tek.ust !== t.ust) {
+          var nov = { ust: t.ust, pts: [] };
+          if (tek) { tek.pts.push([tr.tC, tr.P_atm]); nov.pts.push([tr.tC, tr.P_atm]); }
+          kuski.push(nov); tek = nov;
+        }
+        tek.pts.push([t.tC, P / ATM]);
+      }
+      lin[kak] = kuski;
+    });
+    r[vid] = lin;
+  });
+  return r;
+})();
+
+/* ── строка показаний ── */
+function slova(S) {
+  var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+  var n = NAZV[S.vid], tr = S.trojnaya, voda = S.vid === 'voda';
+  var pa = S.P_atm < 0.1 ? ' (' + Math.round(S.P_Pa) + ' Па)' : '';
+  if (S.v_trojnoj) {
+    return 'Тройная точка ' + n.imya + ': ' + A(num(tr.tC, 2) + ' °C и ' + (voda ? num(tr.P_Pa, 3) + ' Па' : atm(tr.P) + ' атм')) +
+      '. Все три кривые проходят через одну точку, у трёх фаз один химический потенциал.';
+  }
+  if (S.nizhe) {
+    return 'При ' + A(atm(S.P) + ' атм') + pa + ' давление ниже тройной точки, и кривая ' + (voda ? 'воды' : 'жидкости') +
+      ' ни при какой температуре не бывает самой нижней. ' + n.tt.charAt(0).toUpperCase() + n.tt.slice(1) + ' выигрывает до ' +
+      A(num(S.vozg.tC, 2) + ' °C') + ' и уступает сразу ' + (voda ? 'пару' : 'газу') + ': жидкости при этом давлении нет.';
+  }
+  return 'При ' + A(atm(S.P) + ' атм') + pa + ' ' + n.zh + ' выигрывает от ' + A(num(S.plav.tC, 2) + ' до ' + num(S.kip.tC, 2) + ' °C') +
+    ', холоднее ' + n.tt + ', горячее ' + n.g + '. В точке перехода потенциалы двух фаз равны, и справа это точка линии ' +
+    'плавления или кипения.';
+}
+/* Самая длинная фраза строки, текстом без разметки: держит высоту строки. */
+var TEN = (function () {
+  var best = '';
+  ['voda', 'co2'].forEach(function (vid) {
+    var o = OSI[vid], ps = [TROJ[vid].P];
+    for (var i = 0; i <= 60; i++) ps.push(Math.pow(10, Math.log10(o.pMin) + (Math.log10(o.pMax) - Math.log10(o.pMin)) * i / 60) * ATM);
+    ps.forEach(function (P) {
+      var t = slova(sostoyanie(vid, P)).replace(/<[^>]+>/g, '');
+      if (t.length > best.length) best = t;
+    });
+  });
+  return best;
+})();
+
+function KtoVyigryvaet() {
+  var B = useRef(null);
+  if (!B.current) B.current = { vid: 'voda', P: ATM };
+  var b = B.current;
+  var _t = useState(0), tik = _t[1];
+  function obnovit() { tik(function (n) { return n + 1; }); }
+
+  var S = sostoyanie(b.vid, b.P);
+  window.__demoState = S;
+
+  function step() {}
+
+  function osiLevye(ctx, tone, vid) {
+    var ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)', o = OSI[vid];
+    ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(LX0, PY0 - 6); ctx.lineTo(LX0, PY1); ctx.lineTo(LX1, PY1); ctx.stroke();
+    o.tTik.forEach(function (t) {
+      ctx.beginPath(); ctx.moveTo(XL(vid, t), PY1); ctx.lineTo(XL(vid, t), PY1 + 6); ctx.stroke();
+      C.label(ctx, XL(vid, t), PY1 + 24, num(t, 0), 17, mut);
+    });
+    C.label(ctx, LX0 - 10, PY0 + 8, 'μ', 19, 'rgb(' + ink + ')', 'right');
+    C.label(ctx, LX1, PY1 + 50, 't, °C', 17, mut, 'right');
+  }
+
+  function osiPravye(ctx, tone, vid) {
+    var ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)', o = OSI[vid];
+    ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(RX0, PY0 - 6); ctx.lineTo(RX0, PY1); ctx.lineTo(RX1, PY1); ctx.stroke();
+    o.tTik.forEach(function (t) {
+      ctx.beginPath(); ctx.moveTo(XR(vid, t), PY1); ctx.lineTo(XR(vid, t), PY1 + 6); ctx.stroke();
+      C.label(ctx, XR(vid, t), PY1 + 24, num(t, 0), 17, mut);
+    });
+    o.pTik.forEach(function (p) {
+      var y = YR(vid, p);
+      ctx.beginPath(); ctx.moveTo(RX0 - 6, y); ctx.lineTo(RX0, y); ctx.stroke();
+      C.label(ctx, RX0 - 10, y + 6, String(p).replace('.', ','), 17, mut, 'right');
+    });
+    C.label(ctx, RX0 + 8, PY0 - 2, 'P, атм', 17, mut, 'left');
+    C.label(ctx, RX1, PY1 + 50, 't, °C', 17, mut, 'right');
+  }
+
+  function legenda(ctx, tone, vid) {
+    var ink = 'rgba(' + tone.ink + ',.9)', x = 20, n = NAZV[vid];
+    ctx.font = '17px "Golos Text", system-ui, sans-serif';
+    ['tt', 'zh', 'g'].forEach(function (f) {
+      ctx.strokeStyle = 'rgb(' + CV[f] + ')'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(x, 24); ctx.lineTo(x + 28, 24); ctx.stroke();
+      C.label(ctx, x + 36, 30, n[f], 17, ink, 'left');
+      x += 36 + ctx.measureText(n[f]).width + 22;
+    });
+    x = 20;
+    [['устойчива', 4, 1], ['метастабильна', 1.8, .6]].forEach(function (e) {
+      ctx.strokeStyle = 'rgba(' + tone.ink + ',' + e[2] + ')'; ctx.lineWidth = e[1];
+      ctx.beginPath(); ctx.moveTo(x, 52); ctx.lineTo(x + 28, 52); ctx.stroke();
+      C.label(ctx, x + 36, 58, e[0], 17, ink, 'left');
+      x += 36 + ctx.measureText(e[0]).width + 22;
+    });
+  }
+
+  function krivaya(ctx, V, vid, f, P, t0, t1) {
+    var n = Math.max(2, Math.ceil(Math.abs(t1 - t0) / 0.5));
+    ctx.beginPath();
+    for (var i = 0; i <= n; i++) {
+      var t = t0 + (t1 - t0) * i / n, x = XL(vid, t), y = YL(vid, mu(V, f, t + 273.15, P));
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  function kruzhok(ctx, x, y, ust, tone) {
+    ctx.beginPath(); ctx.arc(x, y, ust ? 6 : 4.5, 0, 6.284);
+    if (ust) { ctx.fillStyle = 'rgb(' + tone.ink + ')'; ctx.fill(); }
+    else { ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(' + tone.ink + ',.75)'; ctx.stroke(); }
+  }
+
+  function levoe(ctx, tone, S) {
+    var vid = S.vid, V = vid === 'co2' ? CO2 : VODA, o = OSI[vid], P = S.P;
+    osiLevye(ctx, tone, vid);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(LX0, PY0, LX1 - LX0, PY1 - PY0); ctx.clip();
+    ctx.lineJoin = 'round';
+    /* тонко: все три кривые целиком */
+    ['tt', 'zh', 'g'].forEach(function (f) {
+      ctx.strokeStyle = 'rgba(' + CV[f] + ',.6)'; ctx.lineWidth = 1.8;
+      krivaya(ctx, V, vid, f, P, o.t0, o.t1);
+    });
+    /* жирно: нижняя огибающая, куски между устойчивыми переходами */
+    var gr = [o.t0];
+    [S.plav, S.kip, S.vozg].forEach(function (t) { if (t && t.ust && t.tC > o.t0 && t.tC < o.t1) gr.push(t.tC); });
+    gr.push(o.t1);
+    gr.sort(function (a, c) { return a - c; });
+    for (var i = 0; i + 1 < gr.length; i++) {
+      if (gr[i + 1] - gr[i] < 1e-9) continue;
+      var f = ustojchivaya(V, 0.5 * (gr[i] + gr[i + 1]) + 273.15, P);
+      ctx.strokeStyle = 'rgb(' + CV[f] + ')'; ctx.lineWidth = 4;
+      krivaya(ctx, V, vid, f, P, gr[i], gr[i + 1]);
+    }
+    ctx.restore();
+    /* точки пересечения: устойчивые залиты, метастабильные полые */
+    [['plav', 'tt'], ['kip', 'zh'], ['vozg', 'tt']].forEach(function (p) {
+      var t = S[p[0]];
+      if (!t || t.tC < o.t0 || t.tC > o.t1) return;
+      var x = XL(vid, t.tC), y = YL(vid, mu(V, p[1], t.T, P));
+      if (y < PY0 || y > PY1) return;
+      if (t.ust) {
+        ctx.strokeStyle = 'rgba(' + tone.ink + ',.35)'; ctx.lineWidth = 1.2; ctx.setLineDash([3, 5]);
+        ctx.beginPath(); ctx.moveTo(x, y + 8); ctx.lineTo(x, PY1); ctx.stroke(); ctx.setLineDash([]);
+      }
+      kruzhok(ctx, x, y, t.ust, tone);
+    });
+  }
+
+  function pravoe(ctx, tone, S) {
+    var vid = S.vid, o = OSI[vid], ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)', tr = S.trojnaya;
+    osiPravye(ctx, tone, vid);
+    /* подписи областей цветом фазы */
+    METKI[vid].oblasti.forEach(function (m) {
+      C.label(ctx, XR(vid, m[0]), YR(vid, m[1]), NAZV[vid][m[2]], 19, 'rgba(' + CV[m[2]] + ',.95)');
+    });
+    ctx.save();
+    ctx.beginPath(); ctx.rect(RX0, PY0, RX1 - RX0, PY1 - PY0); ctx.clip();
+    ctx.lineJoin = 'round';
+    Object.keys(LINII[vid]).forEach(function (kak) {
+      LINII[vid][kak].forEach(function (k) {
+        ctx.strokeStyle = 'rgba(' + ink + ',' + (k.ust ? '.9' : '.35') + ')';
+        ctx.lineWidth = k.ust ? 2.6 : 1.5; ctx.setLineDash(k.ust ? [] : [6, 5]);
+        ctx.beginPath();
+        k.pts.forEach(function (q, i) { var x = XR(vid, q[0]), y = YR(vid, q[1]); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+        ctx.stroke();
+      });
+    });
+    ctx.setLineDash([]);
+    /* горизонталь текущего давления */
+    var y = YR(vid, S.P_atm);
+    ctx.strokeStyle = 'rgba(' + tone.accent + ',.9)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(RX0, y); ctx.lineTo(RX1, y); ctx.stroke();
+    ctx.restore();
+    METKI[vid].linii.forEach(function (m) { C.label(ctx, XR(vid, m[0]), YR(vid, m[1]), m[2], 17, mut, m[3]); });
+    /* тройная точка */
+    var xt = XR(vid, tr.tC), yt = YR(vid, tr.P_atm);
+    C.glow(ctx, xt, yt, 16, tone.accent, .3);
+    ctx.fillStyle = 'rgb(' + tone.accent + ')'; ctx.beginPath(); ctx.arc(xt, yt, 5.5, 0, 6.284); ctx.fill();
+    C.label(ctx, xt + 12, yt + 24, 'тройная точка', 17, 'rgb(' + tone.accent + ')', 'left');
+    /* точки пересечения кривых слева на горизонтали */
+    [S.plav, S.kip, S.vozg].forEach(function (t) {
+      if (!t || t.tC < o.t0 || t.tC > o.t1) return;
+      kruzhok(ctx, XR(vid, t.tC), y, t.ust, tone);
+    });
+  }
+
+  /* Кадр считает состояние заново по ручкам: __demoTick в скрытой вкладке
+     рисует раньше, чем React перерисует разметку. */
+  function draw(ctx) {
+    var tone = C.tones(ctx), S = sostoyanie(b.vid, b.P);
+    window.__demoState = S;
+    legenda(ctx, tone, S.vid);
+    levoe(ctx, tone, S);
+    pravoe(ctx, tone, S);
+    var ink = 'rgb(' + tone.ink + ')', mut = 'rgba(' + tone.muted + ',.9)';
+    function pok(t) { return t && t.ust ? num(t.tC, 2) : '—'; }
+    function cv(t) { return t && t.ust ? ink : mut; }
+    C.readout(ctx, 575, 26, 'ДАВЛЕНИЕ, АТМ', atm(S.P), 'rgb(' + tone.accent + ')');
+    C.readout(ctx, 715, 26, 'ПЛАВЛЕНИЕ, °C', pok(S.plav), cv(S.plav));
+    C.readout(ctx, 855, 26, 'КИПЕНИЕ, °C', pok(S.kip), cv(S.kip));
+    C.readout(ctx, 995, 26, 'ВОЗГОНКА, °C', pok(S.vozg), cv(S.vozg));
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+  function postavit(P) { var o = OSI[b.vid]; b.P = C.clamp(P, o.pMin * ATM, o.pMax * ATM); obnovit(); }
+  function vybrat(vid) { b.vid = vid; b.P = ATM; obnovit(); }
+
+  /* Для автопроверки: __demoSet({ vid, P_atm, P_Pa, trojnaya }) ставит ручки
+     и возвращает показания; __demoModel даёт счёт и геометрию для сверки. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.vid) { b.vid = o.vid; b.P = ATM; }
+    if (o.P_atm != null) b.P = o.P_atm * ATM;
+    if (o.P_Pa != null) b.P = o.P_Pa;
+    if (o.trojnaya) b.P = TROJ[b.vid].P;
+    obnovit();
+    return sostoyanie(b.vid, b.P);
+  };
+  window.__demoModel = { mu: mu, perehod: perehod, tochka: tochka, trojnaya: TROJ, ustojchivaya: ustojchivaya,
+                         sostoyanie: sostoyanie, slova: slova, V: { voda: VODA, co2: CO2 }, osi: OSI, linii: LINII,
+                         geom: { W: W, H: HGT, XL: XL, YL: YL, XR: XR, YR: YR, okno: OKNO }, ten: TEN };
+
+  var o = OSI[b.vid];
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Slider} label="Давление:" log=${true} min=${o.pMin} max=${o.pMax} step=${0.005} value=${b.P / ATM}
+                     onChange=${function (p) { postavit(p * ATM); }} display=${atm(b.P) + ' атм'} />
+        <${C.Group}>
+          <${C.Btn} active=${b.vid === 'voda'} onClick=${function () { vybrat('voda'); }}>Вода<//>
+          <${C.Btn} active=${b.vid === 'co2'} onClick=${function () { vybrat('co2'); }}>Углекислый газ<//>
+        <//>
+        <${C.Group}>
+          <${C.Btn} active=${b.P === ATM} onClick=${function () { postavit(ATM); }}>1 атм<//>
+          <${C.Btn} active=${b.P === TROJ[b.vid].P} onClick=${function () { postavit(TROJ[b.vid].P); }}>Тройная точка<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <div class="status pf-status" data-ten=${TEN}>
+        <span dangerouslySetInnerHTML=${{ __html: slova(S) }}></span>
+      </div>
+    </div>`;
+}
+
+C.mount(KtoVyigryvaet);
+</script>
+</body>
+</html>

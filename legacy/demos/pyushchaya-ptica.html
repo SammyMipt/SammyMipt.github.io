@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Пьющая птица: тепловая машина на влажной голове</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-10/">&larr; Неделя 10</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=pyushchaya-ptica"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Производство драфта недели 10 (бриф briefs/proizvodstvo10.md, демки,
+   исполнитель 4; решения автора briefs/lekciya10_resheniya_ramki.md, п. 6:
+   вместо ролика демка пьющей птицы). Блок главы teplovaya-mashina, вход
+   formulirovki-vtorogo-nachala, рисунок ris-ptichka-pod-kolpakom.
+
+   ПТИЦА. Запаянная колба: тело и голова, стеклянные шары, соединены
+   трубкой-шеей; внутри только дихлорметан и его насыщенный пар. Голова
+   обтянута войлоком, вода с войлока испаряется. Размеры, массы шляпы и
+   клюва, плотности и теплоёмкость стекла взяты из таблицы 2 статьи
+   J. Guemez, R. Valiente, C. Fiolhais, M. Fiolhais, Experiments with the
+   drinking bird, Am. J. Phys. 71, 1257 (2003), doi 10.1119/1.1603272
+   (открытая копия estudogeral.uc.pt/bitstream/10316/12328/1/), там же
+   вода на голове 0,4 г, в клюве 0,1 г и трение в оси b = 7,5·10⁻⁷ Дж·с.
+   Ось посередине трубки, L = 6,68 см между центрами шаров.
+
+   ДАВЛЕНИЕ ПАРА. Антуан для дихлорметана, NIST Chemistry WebBook
+   (CAS 75-09-2; Ganeff, Jungers, 1948; 233–313 К):
+       lg(P/бар) = 4,53691 − 1327,016/(T − 20,474).
+   Кипение при 101 325 Па выходит 313,34 К (NIST 313 ± 1). Теплота
+   испарения берётся из того же закона Клаузиуса — Клапейрона, L = RT²·d ln P/dT:
+   29,29 кДж/моль при 25 °C против 29,03 ± 0,08 стандартной у NIST (Manion,
+   2002). Своя L, а не табличная, нужна, чтобы работа и теплота считались
+   одним законом: тогда на каждом шаге δA/δQ = ΔT/T и второе начало
+   выполняется самим счётом, а не подгонкой констант.
+
+   ГОЛОВА. Температура смоченной ткани по психрометрической формуле ВМО
+   (WMO-No. 8, 2008, Annex 4.B, аспирационный психрометр):
+       e = e'_w(t_w) − 6,53·10⁻⁴(1 + 0,000944 t_w)·p·(t − t_w),
+       e_w(t) = 6,112 exp(17,62 t/(243,12 + t)) гПа, e' = f(p)e,
+       f(p) = 1,0016 + 3,15·10⁻⁶ p − 0,074/p, p = 1013,25 гПа.
+   Это холодильник машины, воздух комнаты её нагреватель. Перепад
+   D = t − t_w.
+
+   ЦИКЛ. Пока нижний конец шеи в жидкости, столб в шее держит разность
+   давлений пара тела и головы: ΔP = ρgΔz, Δz — высота уровня в шее или
+   в голове над уровнем в теле (поверхность в теле на высоте центра шара,
+   как в статье). Пару в голове этим задан перепад насыщения
+   ΔT = T − T_нас(P_тела − ΔP). Тепло идёт от воздуха к телу, паром в
+   голову и через войлок воде одной цепочкой с проводимостью G; часть
+   перепада D съедает разность насыщения, на теплопередачу остаётся
+   D − ΔT:
+       Q̇ = G(D − ΔT),  dV/dt = Q̇/q,  q = T·dP/dT
+   (q — теплота испарения на кубометр пара тела, Клаузиус — Клапейрон с
+   идеальным паром). Жидкость поднимается, пока D > ΔT, и стекает, когда
+   D < ΔT. Объём V над уровнем в теле заполняет шею, затем шаровой
+   сегмент в голове. Работа пара за шаг ΔP·dV, теплота от воздуха Q̇·dt.
+   Механика: птица — твёрдое тело на оси, I·θ̈ = g(A cos θ + B sin θ) − bθ̇,
+   A = Σm·a и B = Σm·b по массам стекла, шляпы, клюва, воды и жидкости
+   (a вперёд, b вдоль шеи от оси вверх). Жидкость в шаре со свободной
+   поверхностью даёт момент как точка в центре шара; столб в шее —
+   отрезок. Полунеявный Эйлер, шаг 2 мс.
+   ОКУНАНИЕ. При θ = 90° клюв в стакане, птица лежит на упоре. Конец шеи
+   вышел из жидкости, пар из тела проходит в голову, ΔP = 0, работы нет, а
+   тепло течёт впустую, Q̇ = GD. Жидкость стекает к объёму V₀ = половина
+   трубки (наблюдение статьи: после окунания трубка заполнена наполовину)
+   с постоянной 0,25 с; дойдя до V₀ + 0,005 см³, конец шеи снова в жидкости.
+   G = 5,6 мВт/К подобрана по одному числу опыта: период 19,5 ± 0,5 с при
+   65 % и 22,5 °C (статья, разд. 3); модель даёт 19,70 с.
+   КОЛПАК. Воздух под колпаком насыщен паром, вода не испаряется, и
+   перепад D гаснет с постоянной теплоёмкости головы C = 2,44 Дж/К (стекло
+   головы, вода на войлоке и в клюве) на проводимость головы 2G (половина
+   цепочки): τ = C/2G = 218 с. Ползунки ставят птицу в другую комнату:
+   перепад сразу свой.
+
+   ПРОВЕРКА (30.10; независимый python briefs/lekciya10_skripty/ptica10.py,
+   node по этому же коду, hcheck на порту 49955: __demoSet, __demoTick,
+   чтение __demoState и пикселей канвы; отчёт
+   briefs/proizvodstvo10_demki-4_REPORT.md).
+   Числа главы teplovaya-mashina при 25 °C: P = 57,27 кПа, при 18 °C
+   43,08 кПа; dP/dT = 2,27 кПа/К, столб 17,3 см на кельвин; ткань при 50 %
+   17,95 °C (Stull 2011 даёт 18,00), при 30 % 14,51, при 70 % 21,00, при
+   100 % 25,00; предел Карно 25 и 17,95 °C 0,0236.
+   Статья: B = dP/dT = 2070 Па/К у них, 2091 здесь при 22,5 °C; перепад
+   после окунания при z₀ = L/2 у них 0,211 К, здесь 0,210. Центр масс
+   переходит ось, когда в голове 0,40 см³ (54 % половины головы; у них
+   «примерно половина»).
+   Периоды при 22,5 °C (модель / опыт статьи по их подгонке): 45 % 11,7 /
+   8,6; 50 % 14,2 / 10,2; 65 % 19,7 / 19,5 (калибровка); 75 % 30,0 / 40,4;
+   85 % 54,5 / 76,1; 90 % 92,7 / 125,8; 95 % 316 / 297; 96 % 645 / 392;
+   97 % птица стоит (порог 96,7 %). Период модели на 26–28 % короче
+   опыта при 75–90 % и на 36–39 % длиннее при 45–50 %: у статьи
+   показатель степени 1,82 и 1,24, авторы объясняют его конвекцией от
+   качаний, которой модель не знает.
+   При 25 °C и 50 %: период 13,99 с, работа за цикл 0,408 мДж, теплота от
+   воздуха 0,534 Дж, КПД 0,076 % при пределе Карно 2,37 %; перепад
+   насыщения пара тела и головы, взвешенный по теплоте цикла, 0,229 К
+   (0,229/298,15 = 0,077 %, почти весь КПД: работа идёт только из этого
+   перепада, остальные 6,8 К уходят на теплопередачу). Порог перепада
+   0,357 К при 25 °C (статический излом при V = 0,907 см³, наклоне 11,7°).
+   Колпак при 25 °C, 50 %: поклоны редеют, последний через 538 с, перепад
+   падает до порога через 649 с; после снятия первый поклон через 94 с.
+   Сходимость: шаг 4, 2, 1 и 0,5 мс даёт период 19,708; 19,702; 19,701;
+   19,700 с. Отрицательный контроль: один резервуар (D = 0) — поклонов
+   нет; без противодавления столба в законе теплопередачи (Q̇ = GD) птица
+   кланялась бы и при 98 % с КПД 0,099 % выше предела Карно 0,083 %.
+   Аудит 3, А3-24: показание работы подписано «мДж», а не капсом «МДЖ»,
+   который читается как мегаджоули. Аудит 3, А3-26: число у головы
+   подписано словом «ткань»: это температура смоченной ткани, пар в
+   голове по модели при 25 °C и 50 % держит 24,6–24,9 °C (hcheck на порту
+   49972, Tsat(Phead) за первый цикл). Счёт не менялся. */
+
+/* ── чистая физика ──────────────────────────────────────────────
+   Отсюда до пометки «конец чистой физики» код не знает о браузере и
+   прогоняется в node. Единицы СИ. */
+
+var R = 8.314462618;
+var g = 9.81;
+var C0 = 273.15;
+var ANT = { A: 4.53691, B: 1327.016, C: -20.474 };       /* lg(P/бар), NIST */
+function Psat(T) { return 1e5 * Math.pow(10, ANT.A - ANT.B / (T + ANT.C)); }
+function Tsat(P) { return ANT.B / (ANT.A - Math.log10(P / 1e5)) - ANT.C; }
+function dlnPdT(T) { return Math.LN10 * ANT.B / ((T + ANT.C) * (T + ANT.C)); }
+
+var P_VOZD = 101325;
+function ew(t) { return 611.2 * Math.exp(17.62 * t / (243.12 + t)); }
+function fp(pGPa) { return 1.0016 + 3.15e-6 * pGPa - 0.074 / pGPa; }
+/* Психрометрическая формула ВМО, решаем по t_w делением пополам. */
+function tSmoch(t, U) {
+  var f = fp(P_VOZD / 100), e = U / 100 * f * ew(t), lo = t - 60, hi = t;
+  for (var k = 0; k < 100; k++) {
+    var tw = 0.5 * (lo + hi);
+    if (f * ew(tw) - 6.53e-4 * (1 + 0.000944 * tw) * P_VOZD * (t - tw) > e) hi = tw; else lo = tw;
+  }
+  return 0.5 * (lo + hi);
+}
+
+/* Птица, таблица 2 статьи, СИ. */
+var L = 0.0668;
+var D_TELA = 0.0179, D_TELA_VN = 0.0173, D_GOL = 0.0147, D_GOL_VN = 0.0141;
+var D_TRUB = 0.0057, D_TRUB_VN = 0.0040, H_PUST = 0.003, FI = 20 * Math.PI / 180;
+var M_SHLYAPA = 0.81e-3, M_KLYUV = 0.2e-3, M_VODA = 0.4e-3, M_VODA_KLYUV = 0.1e-3;
+var RHO_ST = 2100, RHO = 1336, C_ST = 837, C_VODA = 4186;
+var R_TELA = D_TELA_VN / 2, R_GOL = D_GOL_VN / 2;
+var S_TRUB = Math.PI * D_TRUB_VN * D_TRUB_VN / 4;
+function obolochka(de, di) { return RHO_ST * 4 * Math.PI / 3 * (Math.pow(de / 2, 3) - Math.pow(di / 2, 3)); }
+var M_ST_TELA = obolochka(D_TELA, D_TELA_VN), M_ST_GOL = obolochka(D_GOL, D_GOL_VN);
+var M_TRUB = RHO_ST * Math.PI * (D_TRUB * D_TRUB - D_TRUB_VN * D_TRUB_VN) / 4 * L;
+var V_ZHID = 4 * Math.PI / 3 * Math.pow(R_TELA, 3) - Math.PI / 3 * H_PUST * H_PUST * (3 * R_TELA - H_PUST);
+var L_KLYUV = (D_GOL + L) / 2;
+var KLYUV_A = L_KLYUV * Math.tan(FI), KLYUV_B = L_KLYUV;   /* центр масс клюва */
+var S_MAX = L - R_GOL;                 /* столб от центра тела до входа в голову */
+var V_TRUB = S_TRUB * S_MAX;
+var V_GOL = 4 * Math.PI / 3 * Math.pow(R_GOL, 3);
+var V0 = S_TRUB * L / 2;               /* после окунания: половина трубки */
+var C_GOL = M_ST_GOL * C_ST + (M_VODA + M_VODA_KLYUV) * C_VODA;
+var G_PROV = 5.6e-3, TAU_STOK = 0.25, B_TR = 7.5e-7, EPS_V = 5e-9, DT = 2e-3;
+
+/* Высота шарового сегмента по объёму: x³ − 3x² + 4f = 0, x = h/r. */
+function segmentH(V, r) {
+  var f = Math.min(Math.max(V / (4 * Math.PI / 3 * r * r * r), 0), 1);
+  return r * (1 + 2 * Math.cos((Math.acos(1 - 2 * f) - 2 * Math.PI) / 3));
+}
+function razlozh(V) { return { s: Math.min(V, V_TRUB) / S_TRUB, Vg: Math.max(0, V - V_TRUB) }; }
+
+/* Моменты A = Σm·a, B = Σm·b и момент инерции относительно оси. */
+function momenty(V) {
+  var r = razlozh(V), s = r.s, Vg = r.Vg;
+  var A = (M_KLYUV + M_VODA_KLYUV) * KLYUV_A;
+  var B = -M_ST_TELA * L / 2 + (M_ST_GOL + M_SHLYAPA + M_VODA) * L / 2 + (M_KLYUV + M_VODA_KLYUV) * KLYUV_B;
+  B += RHO * (-(V_ZHID - V) * L / 2 + S_TRUB * s * (s / 2 - L / 2) + Vg * L / 2);
+  var rB = (D_TELA + D_TELA_VN) / 4, rG = (D_GOL + D_GOL_VN) / 4;
+  var I = M_ST_TELA * (L * L / 4 + 2 / 3 * rB * rB) + M_ST_GOL * (L * L / 4 + 2 / 3 * rG * rG);
+  I += M_TRUB * L * L / 12 + (M_SHLYAPA + M_VODA) * L * L / 4 + (M_KLYUV + M_VODA_KLYUV) * (KLYUV_A * KLYUV_A + KLYUV_B * KLYUV_B);
+  I += RHO * (V_ZHID - V) * L * L / 4;
+  var b1 = -L / 2, b2 = -L / 2 + s;
+  I += RHO * S_TRUB * (b2 * b2 * b2 - b1 * b1 * b1) / 3 + RHO * Vg * L * L / 4;
+  return { A: A, B: B, I: I };
+}
+/* Высота уровня над уровнем в теле. */
+function dz(V, th) {
+  var r = razlozh(V);
+  if (r.Vg <= 0) return r.s * Math.cos(th);
+  return S_MAX * Math.cos(th) + segmentH(Math.min(r.Vg, V_GOL), R_GOL);
+}
+function dTnas(V, th, Ta) { return Ta - Tsat(Psat(Ta) - RHO * g * dz(V, th)); }
+
+/* Порог: наибольший перепад насыщения на равновесном пути к опрокидыванию.
+   Если перепад комнаты меньше, жидкость до излома не дойдёт. */
+var porogKesh = {};
+function porog(Ta) {
+  var k = Ta.toFixed(3);
+  if (porogKesh[k]) return porogKesh[k];
+  var best = { D: 0, V: 0, th: 0 };
+  for (var V = 0; V < V_TRUB + V_GOL; V += 5e-10) {
+    var m = momenty(V);
+    if (m.B >= 0) break;
+    var th = Math.atan2(m.A, -m.B), d = dTnas(V, th, Ta);
+    if (d > best.D) best = { D: d, V: V, th: th };
+  }
+  porogKesh[k] = best;
+  return best;
+}
+
+function novoe(TaC, U) {
+  var S = { th: 0.1, om: 0, V: V0, otkr: false, t: 0, W: 0, Q: 0, tPoslednij: null, ciklVeren: true,
+            per: null, Wc: null, Qc: null, Dc: null, dTc: null, QD: 0, QdT: 0, nPoklonov: 0, kolpak: false, bezProtivo: false,
+            dP: 0, dT: 0, Qd: 0 };
+  usloviya(S, TaC, U);
+  S.D = S.Dk;
+  return S;
+}
+/* Комната: температура и влажность. Перепад смоченной ткани сразу свой. */
+function usloviya(S, TaC, U) {
+  S.TaC = TaC; S.U = U; S.Ta = TaC + C0;
+  S.Dk = TaC - tSmoch(TaC, U);
+  S.Pb = Psat(S.Ta);
+  S.q = S.Ta * S.Pb * dlnPdT(S.Ta);
+  S.G = G_PROV;
+  S.tauD = C_GOL / (2 * S.G);
+  S.porog = porog(S.Ta).D;
+}
+
+/* Итоги цикла от поклона до поклона. Dc — перепад, взвешенный по теплоте
+   того же цикла: предел Карно цикла Dc/T. При постоянных температурах это
+   просто D/T, а под колпаком, когда голова теплеет посреди цикла, КПД
+   надо сравнивать с пределом того же цикла. На каждом шаге работа пара
+   ΔP·dV не больше (D/T)·Q̇·dt, поэтому W/Q < Dc/T выполняется счётом.
+   dTc — перепад насыщения пара тела и головы, взвешенный так же: та доля
+   разности D, которая досталась машине. */
+function zapisatCikl(S) {
+  if (S.tPoslednij !== null && S.ciklVeren) { S.per = S.t - S.tPoslednij; S.Wc = S.W; S.Qc = S.Q; S.Dc = S.QD / S.Q; S.dTc = S.QdT / S.Q; }
+  S.tPoslednij = S.t; S.W = 0; S.Q = 0; S.QD = 0; S.QdT = 0; S.ciklVeren = true; S.nPoklonov++;
+}
+
+/* Один шаг dt; возвращает 'poklon', если клюв ушёл в воду. */
+function shag(S, dt) {
+  var Dcel = S.kolpak ? 0 : S.Dk;
+  S.D += (Dcel - S.D) * (1 - Math.exp(-dt / S.tauD));
+  var m = momenty(S.V);
+  var tq = g * (m.A * Math.cos(S.th) + m.B * Math.sin(S.th));
+  var dV, Qd, dP, dT = 0;
+  if (S.otkr) {
+    dV = (V0 - S.V) / TAU_STOK; Qd = S.G * S.D; dP = 0;
+  } else {
+    dP = RHO * g * dz(S.V, S.th);
+    dT = S.Ta - Tsat(S.Pb - dP);
+    Qd = S.G * (S.bezProtivo ? S.D : S.D - dT); dV = Qd / S.q;
+  }
+  S.om += (tq - B_TR * S.om) / m.I * dt;
+  S.th += S.om * dt;
+  var sob = null;
+  if (S.th >= Math.PI / 2) {
+    S.th = Math.PI / 2;
+    if (S.om > 0) S.om = 0;
+    if (!S.otkr && S.V > V0 + EPS_V) { S.otkr = true; sob = 'poklon'; zapisatCikl(S); }
+  }
+  S.W += dP * dV * dt; S.Q += Qd * dt; S.QD += Qd * S.D * dt; S.QdT += Qd * dT * dt;
+  /* перепад ниже порога: птица больше не опрокинется, прошлый цикл не в счёт */
+  if (S.D <= S.porog && S.per !== null) { S.per = null; S.Wc = null; S.Qc = null; S.Dc = null; S.dTc = null; S.ciklVeren = false; }
+  S.V += dV * dt;
+  if (S.V < 0) S.V = 0;
+  if (S.otkr && S.V <= V0 + EPS_V) S.otkr = false;
+  S.t += dt;
+  S.dP = dP; S.dT = dT; S.Qd = Qd; S.A = m.A; S.B = m.B; S.I = m.I;
+  return sob;
+}
+/* Прогон на T секунд; стоп — по числу поклонов, если задано. */
+function progon(S, T, doPoklonov) {
+  var n = Math.round(T / DT), k = 0;
+  for (var i = 0; i < n; i++) {
+    if (shag(S, DT) === 'poklon') { k++; if (doPoklonov && k >= doPoklonov) return k; }
+  }
+  return k;
+}
+function kopiya(S) { var c = {}; for (var k in S) c[k] = S[k]; return c; }
+/* ── конец чистой физики ── */
+
+/* Русская запятая и настоящий минус. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+
+/* ══════════════════ сцена ══════════════════
+
+   Слева птица на стойке и стакан с водой: стекло, красный дихлорметан в
+   теле, в шее и в голове, войлок, клюв, шляпа. Уровни в шарах горизонтальны
+   в лабораторной системе. Под колпаком колпак поверх всего. Справа две
+   температуры, период, разность давлений пара, работа и теплота за цикл и
+   две полосы: КПД птицы и предел Карно для этих двух температур. */
+
+var W = 1000, HGT = 460;
+var PX = 235, PY = 200, K = 3800;          /* ось на сцене; пикселей на метр */
+var Y_POL = PY + 0.045 * K;
+/* стакан ниже тела в откате назад: шар тела при −63° доходит до y = PY + 0,0245·K */
+var STAKAN_X = PX + 0.041 * K, STAKAN_W = 0.018 * K, STAKAN_VERH = PY + 0.0255 * K, VODA_Y = PY + 0.0278 * K;
+var CV_ZHID = '214,58,86';     /* дихлорметан, подкрашен */
+var CV_VOJLOK = '96,128,196';
+var CV_TEPLO = '236,120,62';   /* воздух, нагреватель */
+var CV_HOLOD = '72,140,232';   /* смоченная ткань, холодильник */
+var CV_VODA = '90,170,230';
+var CV_SHLYAPA = '58,66,104';
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function Ptica() {
+  var box = useRef(null);
+  if (!box.current) {
+    var S0 = novoe(25, 50);
+    box.current = { S: S0, skorost: 1, tVid: 0, taimer: null };
+  }
+  var B = box.current;
+  var pair = useState({ n: 0 });
+  var setUi = pair[1];
+
+  /* Установившийся цикл для новых условий: копия той же модели гоняется
+     до двух поклонов (не дальше 900 с); живая птица идёт своим ходом и к
+     нему же приходит. Первый живой поклон после смены условий цикл не
+     пишет: он прошёл наполовину в старой комнате. */
+  function prognoz() {
+    var S = B.S;
+    S.ciklVeren = false;
+    if (S.kolpak || S.Dk <= S.porog) { S.per = null; S.Wc = null; S.Qc = null; S.Dc = null; S.dTc = null; return; }
+    var c = kopiya(S);
+    var n = Math.round(900 / DT), k = 0;
+    for (var i = 0; i < n && k < 2; i++) if (shag(c, DT) === 'poklon') k++;
+    if (k >= 2) { S.per = c.per; S.Wc = c.Wc; S.Qc = c.Qc; S.Dc = c.Dc; S.dTc = c.dTc; }
+    else { S.per = null; S.Wc = null; S.Qc = null; S.Dc = null; S.dTc = null; }
+  }
+  if (!B.prognozBylo) { B.prognozBylo = true; prognoz(); }
+
+  function snyat() {
+    var S = B.S;
+    for (var k in pokaz) delete pokaz[k];
+    var Tg = S.TaC - S.D, etaC = S.D / S.Ta;
+    Object.assign(pokaz, {
+      t: S.t, Ta: S.TaC, U: S.U, kolpak: S.kolpak, skorost: B.skorost,
+      Tsmoch: Tg, D: S.D, Dkomnaty: S.Dk, porog: S.porog, stoit: S.D <= S.porog,
+      theta: S.th * 180 / Math.PI, omega: S.om, V: S.V * 1e6, stolb: razlozh(S.V).s * 100, vGolove: razlozh(S.V).Vg * 1e6,
+      otkryto: S.otkr, dP: S.dP, dT: S.dT, Pbody: S.Pb, Phead: S.Pb - S.dP, Qdot: S.Qd,
+      A: S.A, B: S.B, I: S.I, nPoklonov: S.nPoklonov,
+      period: S.per, W: S.Wc, Q: S.Qc, eta: S.Wc != null && S.Qc ? S.Wc / S.Qc : null,
+      etaCarnot: S.Dc != null ? S.Dc / S.Ta : etaC, etaCarnotSejchas: etaC, dTcikla: S.dTc
+    });
+    return pokaz;
+  }
+
+  function obnovit() { snyat(); setUi(function (u) { return { n: u.n + 1 }; }); }
+
+  var kadr = 0;
+  function step(dt) {
+    var S = B.S, T = dt * B.skorost, n = Math.max(1, Math.round(T / DT));
+    for (var i = 0; i < n; i++) shag(S, DT);
+    B.tVid += dt;
+    snyat();
+    if (++kadr % 6 === 0) setUi(function (u) { return { n: u.n + 1 }; });
+  }
+
+  /* ── рисование ── */
+
+  function vEkran(a, b, th) {   /* точка тела (a вперёд, b вдоль шеи) на экран */
+    var x = a * Math.cos(th) + b * Math.sin(th), z = -a * Math.sin(th) + b * Math.cos(th);
+    return { x: PX + K * x, y: PY - K * z };
+  }
+
+  function stoika(ctx, ink) {
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(PX - 0.016 * K, Y_POL); ctx.lineTo(PX, PY); ctx.lineTo(PX + 0.016 * K, Y_POL); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(PX - 0.024 * K, Y_POL); ctx.lineTo(PX + 0.024 * K, Y_POL); ctx.stroke();
+    ctx.strokeStyle = 'rgba(' + ink + ',.25)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(30, Y_POL + 2); ctx.lineTo(490, Y_POL + 2); ctx.stroke();
+  }
+
+  function stakan(ctx, ink) {
+    var x0 = STAKAN_X - STAKAN_W / 2, x1 = STAKAN_X + STAKAN_W / 2;
+    ctx.fillStyle = 'rgba(' + CV_VODA + ',.28)';
+    ctx.fillRect(x0, VODA_Y, STAKAN_W, Y_POL - VODA_Y);
+    ctx.strokeStyle = 'rgba(' + CV_VODA + ',.8)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x0, VODA_Y); ctx.lineTo(x1, VODA_Y); ctx.stroke();
+    ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x0, STAKAN_VERH); ctx.lineTo(x0 + 3, Y_POL); ctx.lineTo(x1 - 3, Y_POL); ctx.lineTo(x1, STAKAN_VERH); ctx.stroke();
+  }
+
+  /* Жидкость в шаре: срез шара под горизонтальным уровнем. */
+  function zalitShar(ctx, c, r, hUrovnya) {
+    if (hUrovnya <= 0) return;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(c.x, c.y, r * K, 0, 2 * Math.PI); ctx.clip();
+    var y = c.y + r * K - hUrovnya * K;
+    ctx.fillStyle = 'rgba(' + CV_ZHID + ',.85)';
+    ctx.fillRect(c.x - r * K - 2, y, 2 * r * K + 4, r * K * 2 + 4);
+    ctx.strokeStyle = 'rgba(' + CV_ZHID + ',1)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(c.x - r * K, y); ctx.lineTo(c.x + r * K, y); ctx.stroke();
+    ctx.restore();
+  }
+
+  function ptica(ctx, S, ink) {
+    var th = S.th, r = razlozh(S.V);
+    var cT = vEkran(0, -L / 2, th), cG = vEkran(0, L / 2, th);
+    /* стекло: заливка шаров и трубки */
+    ctx.save();
+    ctx.translate(PX, PY); ctx.rotate(th);
+    ctx.fillStyle = 'rgba(' + ink + ',.06)';
+    ctx.beginPath(); ctx.arc(0, K * L / 2, K * D_TELA / 2, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillRect(-K * D_TRUB / 2, -K * (L / 2 - R_GOL), K * D_TRUB, K * (L - R_GOL - R_TELA));
+    ctx.restore();
+    /* жидкость в теле: объём вне шеи и головы */
+    var Vtel = Math.max(0, V_ZHID - S.V);
+    zalitShar(ctx, cT, R_TELA, segmentH(Vtel, R_TELA));
+    /* столб в шее: от конца шеи внутри тела до уровня */
+    ctx.save();
+    ctx.translate(PX, PY); ctx.rotate(th);
+    var bKon = -L / 2 - 0.6 * R_TELA, bVerh = -L / 2 + r.s;
+    if (S.otkr) bKon = -L / 2;   /* конец шеи над жидкостью: в нём пар */
+    if (bVerh > bKon) {
+      ctx.fillStyle = 'rgba(' + CV_ZHID + ',.9)';
+      ctx.fillRect(-K * D_TRUB_VN / 2, -K * bVerh, K * D_TRUB_VN, K * (bVerh - bKon));
+    }
+    /* трубка: стенки */
+    ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.5;
+    [-1, 1].forEach(function (z) {
+      ctx.beginPath(); ctx.moveTo(z * K * D_TRUB / 2, -K * bKon); ctx.lineTo(z * K * D_TRUB / 2, -K * (L / 2 - R_GOL + 0.001)); ctx.stroke();
+    });
+    ctx.restore();
+    /* жидкость в голове */
+    if (r.Vg > 0) zalitShar(ctx, cG, R_GOL, segmentH(Math.min(r.Vg, V_GOL), R_GOL));
+    /* обводы шаров, войлок, клюв, шляпа, глаз */
+    ctx.save();
+    ctx.translate(PX, PY); ctx.rotate(th);
+    ctx.strokeStyle = 'rgba(' + ink + ',.6)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, K * L / 2, K * D_TELA / 2, 0, 2 * Math.PI); ctx.stroke();
+    var yG = -K * L / 2, rv = K * (D_GOL / 2 + 0.0012);
+    ctx.fillStyle = 'rgba(' + CV_VOJLOK + ',.38)';
+    ctx.beginPath(); ctx.arc(0, yG, rv, 0, 2 * Math.PI); ctx.fill();
+    ctx.strokeStyle = 'rgba(' + CV_VOJLOK + ',.95)'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(0, yG, rv, 0, 2 * Math.PI); ctx.stroke();
+    /* клюв, обтянут тем же войлоком */
+    ctx.fillStyle = 'rgba(' + CV_VOJLOK + ',.9)';
+    ctx.beginPath();
+    ctx.moveTo(K * 0.004, -K * (L / 2 + 0.0062));
+    ctx.lineTo(K * 0.030, -K * (L / 2 + 0.0072));
+    ctx.lineTo(K * 0.0055, -K * (L / 2 + 0.0018));
+    ctx.closePath(); ctx.fill();
+    /* шляпа */
+    var bSh = L / 2 + D_GOL / 2 + 0.0008;
+    ctx.fillStyle = 'rgba(' + CV_SHLYAPA + ',1)'; ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.2;
+    ctx.fillRect(-K * 0.0085, -K * (bSh + 0.0012), K * 0.017, K * 0.0016);
+    ctx.strokeRect(-K * 0.0085, -K * (bSh + 0.0012), K * 0.017, K * 0.0016);
+    ctx.fillRect(-K * 0.005, -K * (bSh + 0.0068), K * 0.010, K * 0.0058);
+    ctx.strokeRect(-K * 0.005, -K * (bSh + 0.0068), K * 0.010, K * 0.0058);
+    ctx.fillStyle = 'rgba(' + ink + ',.9)';
+    ctx.beginPath(); ctx.arc(K * 0.0036, -K * (L / 2 + 0.0025), 2.6, 0, 2 * Math.PI); ctx.fill();
+    ctx.restore();
+    /* ось */
+    ctx.fillStyle = 'rgba(' + ink + ',.85)';
+    ctx.beginPath(); ctx.arc(PX, PY, 4, 0, 2 * Math.PI); ctx.fill();
+    return { cT: cT, cG: cG };
+  }
+
+  /* Испарение с войлока: струйки, пока вода испаряется. */
+  function strujki(ctx, S, cG) {
+    if (S.kolpak) return;
+    var sila = Math.min(1, S.Dk / 6);
+    if (sila <= 0.02) return;
+    ctx.save(); ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+    for (var j = 0; j < 4; j++) {
+      var faza = (B.tVid * 0.45 + j / 4) % 1;
+      var x = cG.x - 14 + j * 9, y = cG.y - 30 - faza * 46;
+      ctx.strokeStyle = 'rgba(' + CV_VODA + ',' + (sila * 0.7 * (1 - faza)).toFixed(3) + ')';
+      ctx.beginPath(); ctx.moveTo(x, y + 10);
+      ctx.quadraticCurveTo(x + 6 * Math.sin(6.283 * faza + j), y + 5, x, y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function kolpak(ctx, ink) {
+    var x0 = 30, x1 = 480, yv = 8, rr = 60;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x0, Y_POL); ctx.lineTo(x0, yv + rr); ctx.arcTo(x0, yv, x0 + rr, yv, rr);
+    ctx.lineTo(x1 - rr, yv); ctx.arcTo(x1, yv, x1, yv + rr, rr); ctx.lineTo(x1, Y_POL);
+    ctx.fillStyle = 'rgba(' + CV_VODA + ',.07)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.restore();
+  }
+
+  function scena(ctx, S, tone) {
+    var ink = tone.ink;
+    stoika(ctx, ink);
+    stakan(ctx, ink);
+    var c = ptica(ctx, S, ink);
+    strujki(ctx, S, c.cG);
+    if (S.kolpak) kolpak(ctx, ink);
+    /* у головы температура смоченной ткани, а не пара в голове: подписано
+       словом отдельной строкой, чтобы в откате метка не уходила за левый
+       край (аудит 3, А3-26) */
+    C.label(ctx, c.cG.x - 36, c.cG.y - 48, 'ткань', 15, 'rgb(' + CV_HOLOD + ')', 'right');
+    C.label(ctx, c.cG.x - 36, c.cG.y - 30, num(S.TaC - S.D, 1) + ' °C', 17, 'rgb(' + CV_HOLOD + ')', 'right');
+  }
+
+  function panel(ctx, S, tone) {
+    var ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)';
+    ctx.strokeStyle = 'rgba(' + ink + ',.12)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(515, 20); ctx.lineTo(515, 440); ctx.stroke();
+    var Y1 = 30, Y2 = 118, Y3 = 206;
+    C.readout(ctx, 760, Y1, 'ВОЗДУХ, °C', num(S.TaC, 1), 'rgb(' + CV_TEPLO + ')');
+    C.readout(ctx, 990, Y1, 'СМОЧЕННАЯ ТКАНЬ, °C', num(S.TaC - S.D, 1), 'rgb(' + CV_HOLOD + ')');
+    C.readout(ctx, 760, Y2, 'ПЕРИОД, С', S.per == null ? '—' : num(S.per, 1), 'rgb(' + ink + ')');
+    C.readout(ctx, 990, Y2, 'ПАР: ТЕЛО − ГОЛОВА, ПА', num(S.dP, 0), 'rgb(' + ink + ')');
+    C.readout(ctx, 760, Y3, 'РАБОТА ЗА ЦИКЛ, мДж', S.Wc == null ? '—' : num(S.Wc * 1e3, 2), 'rgb(' + tone.accent + ')');
+    C.readout(ctx, 990, Y3, 'ТЕПЛОТА ОТ ВОЗДУХА, ДЖ', S.Qc == null ? '—' : num(S.Qc, 2), 'rgb(' + CV_TEPLO + ')');
+    /* две полосы в одном масштабе */
+    var eta = S.Wc != null && S.Qc ? S.Wc / S.Qc : null, etaC = S.Dc != null ? S.Dc / S.Ta : S.D / S.Ta;
+    var X0 = 545, XW = 445, mx = Math.max(etaC, eta || 0) || 1;
+    function polosa(y, podpis, v, rgb, d) {
+      C.label(ctx, X0, y, podpis, 17, mut, 'left');
+      C.label(ctx, X0 + XW, y, v == null ? '—' : num(100 * v, d) + ' %', 19, 'rgb(' + rgb + ')', 'right');
+      ctx.fillStyle = 'rgba(' + ink + ',.07)'; ctx.fillRect(X0, y + 10, XW, 18);
+      if (v != null && v > 0) { ctx.fillStyle = 'rgba(' + rgb + ',.9)'; ctx.fillRect(X0, y + 10, Math.max(2, XW * v / mx), 18); }
+    }
+    polosa(330, 'КПД птицы за цикл', eta, tone.accent, 3);
+    polosa(392, 'предел Карно для воздуха и ткани', etaC, ink, 2);
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), S = B.S;
+    scena(ctx, S, tone);
+    panel(ctx, S, tone);
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+
+  function smenaUslovij(TaC, U) {
+    usloviya(B.S, TaC, U);
+    if (!B.S.kolpak) B.S.D = B.S.Dk;
+    clearTimeout(B.taimer);
+    B.taimer = setTimeout(function () { prognoz(); obnovit(); }, 250);
+    obnovit();
+  }
+  function dvigatU(v) { var U = Math.round(v); if (U !== B.S.U) smenaUslovij(B.S.TaC, U); }
+  function dvigatT(v) { var T = Math.round(v * 2) / 2; if (T !== B.S.TaC) smenaUslovij(T, B.S.U); }
+  function pokolpak() {
+    var S = B.S;
+    S.kolpak = !S.kolpak;
+    /* колпак — событие в этой комнате: циклы живые, без прогноза */
+    obnovit();
+  }
+
+  /* Для автопроверки: __demoSet({ U, Ta (°C), kolpak, skorost, zanovo,
+     bezProtivo }) ставит ручки и возвращает показания; __demoModel — счёт
+     для сверки в node и в браузере. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.zanovo) { B.S = novoe(o.Ta != null ? o.Ta : B.S.TaC, o.U != null ? o.U : B.S.U); }
+    else if (o.U != null || o.Ta != null) { usloviya(B.S, o.Ta != null ? o.Ta : B.S.TaC, o.U != null ? o.U : B.S.U); if (!B.S.kolpak) B.S.D = B.S.Dk; }
+    if (o.kolpak != null) B.S.kolpak = !!o.kolpak;
+    if (o.bezProtivo != null) B.S.bezProtivo = !!o.bezProtivo;
+    if (o.skorost) B.skorost = o.skorost;
+    if (o.prognoz) prognoz();
+    obnovit();
+    return pokaz;
+  };
+  window.__demoModel = { Psat: Psat, Tsat: Tsat, dlnPdT: dlnPdT, tSmoch: tSmoch, momenty: momenty, dz: dz,
+                         dTnas: dTnas, porog: porog, segmentH: segmentH, novoe: novoe, shag: shag, progon: progon,
+                         konst: { L: L, V0: V0, V_TRUB: V_TRUB, V_GOL: V_GOL, V_ZHID: V_ZHID, C_GOL: C_GOL, G: G_PROV, DT: DT } };
+
+  /* ── строка показаний ── */
+
+  function slova() {
+    var S = B.S, A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var Tg = S.TaC - S.D, por = num(S.porog, 2) + ' К';
+    if (S.kolpak) {
+      if (S.D > S.porog)
+        return 'Под колпаком воздух насыщен паром, и вода с войлока больше не испаряется. Голова теплеет: ткань уже ' + A(num(Tg, 1) + ' °C') +
+          ' при воздухе ' + num(S.TaC, 1) + ' °C. Разность температур тает, жидкость поднимается всё медленнее, и птица кланяется всё реже' +
+          (S.per != null && S.ciklVeren ? ': последний цикл ' + A(num(S.per, 1) + ' с') + '.' : '.') + ' Голова теплеет минутами, время удобно ускорить кнопкой ×20.';
+      return 'Голова почти сравнялась с воздухом: ' + A(num(Tg, 2) + ' °C') + ' против ' + num(S.TaC, 1) + ' °C. Чтобы птица опрокинулась, пар в голове должен быть холоднее пара в теле на ' +
+        por + ', а вся разность температур теперь ' + num(S.D, 2) + ' К. Холодильник пропал, остался один резервуар, и птица встала, хотя тепла в комнате столько же.';
+    }
+    if (S.Dk < 0.005)
+      return 'При влажности 100 % вода с войлока не испаряется, и смоченная ткань не холоднее воздуха. Холодильника нет, есть один резервуар, и птица стоит.';
+    if (S.Dk <= S.porog)
+      return 'При влажности ' + num(S.U, 0) + ' % смоченная ткань холоднее воздуха только на ' + A(num(S.Dk, 2) + ' К') + ', а птице, чтобы опрокинуться, нужно ' + por +
+        '. Жидкость поднимается, но перевесить птицу ей не хватает, и птица стоит.';
+    if (S.D < S.Dk - 0.05) {
+      var t = 'Колпак снят: вода снова испаряется, и голова остывает, ткань сейчас ' + A(num(Tg, 1) + ' °C') + ' при ' + num(S.TaC - S.Dk, 1) + ' °C в равновесии с комнатой.';
+      return S.D > S.porog ? t + ' Птица снова кланяется.' : t + ' Пока разность температур меньше нужных ' + por + ', птица стоит.';
+    }
+    var txt = 'Воздух ' + num(S.TaC, 1) + ' °C при влажности ' + num(S.U, 0) + ' %: вода испаряется с войлока, и смоченная ткань остывает до ' + A(num(Tg, 1) + ' °C') + '. ';
+    if (S.per == null || S.Wc == null) return txt + 'Период, работа и теплота за цикл появятся после полного цикла.';
+    var eta = S.Wc / S.Qc, etaC = S.Dc / S.Ta;
+    txt += 'Поклон раз в ' + A(num(S.per, 1) + ' с') + '. За цикл птица берёт у воздуха ' + A(num(S.Qc, 2) + ' Дж') + ' и совершает работу ' + A(num(S.Wc * 1e3, 2) + ' мДж') +
+      ': КПД ' + A(num(100 * eta, 3) + ' %') + ' при пределе Карно ' + num(100 * etaC, 2) + ' % для этих двух температур. ';
+    txt += 'Пару в голове достаётся в среднем перепад ' + num(S.dTc, 2) + ' К, а почти вся разность ' + num(S.D, 2) + ' К уходит на перенос тепла через стекло и воздух.';
+    return txt;
+  }
+
+  var S = B.S;
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Slider} label="Влажность:" min=${10} max=${100} step=${1} value=${S.U}
+                     onChange=${dvigatU} display=${num(S.U, 0) + ' %'} />
+        <${C.Slider} label="Воздух:" min=${15} max=${35} step=${0.5} value=${S.TaC}
+                     onChange=${dvigatT} display=${num(S.TaC, 1) + ' °C'} />
+        <${C.Group}>
+          <${C.Btn} active=${S.kolpak} onClick=${pokolpak}>Под колпаком<//>
+        <//>
+        <${C.Group} label="Скорость:" cls="step">
+          <${C.Btn} active=${B.skorost === 1} onClick=${function () { B.skorost = 1; obnovit(); }}>×1<//>
+          <${C.Btn} active=${B.skorost === 5} onClick=${function () { B.skorost = 5; obnovit(); }}>×5<//>
+          <${C.Btn} active=${B.skorost === 20} onClick=${function () { B.skorost = 20; obnovit(); }}>×20<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Ptica);
+</script>
+</body>
+</html>

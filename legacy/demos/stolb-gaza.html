@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Столб газа в поле тяжести</title>
+<link rel="stylesheet" href="../shared/demo.css">
+<style>
+/* Местные правила, как у «кипения под поршнем»: строка показаний держит
+   высоту самой длинной своей фразы, чтобы холст не прыгал при смене пола
+   и сорта. Под видимым текстом лежит невидимая самая длинная фраза. */
+.status.sg-status { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.sg-status > span, .sg-status::before { grid-area: 1 / 1; }
+.sg-status::before { visibility: hidden; content: attr(data-ten); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-12/">&larr; Неделя 12</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=stolb-gaza"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+/* ?vhod=1: показ у входа в лекцию (кадр 4 колоды недели 12). Кривой
+   exp(−mgz/kT), её подписи, метки kT/mg и сравнения с экспонентой на табло
+   и в строке нет: вывод впереди. Нет и кривой Гаусса на колоколах v_z
+   (итоговый аудит 13.11): распределение компоненты скорости колода
+   выводит на кадре 53, гистограммы и m⟨v_z²⟩ остаются. Счёт тот же;
+   второй показ (кадр 48) и страница недели идут без параметра. */
+var VHOD = new URLSearchParams(location.search).get('vhod') === '1';
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Производство двенадцатой недели (бриф briefs/proizvodstvo12.md, раздел
+   «Демки», исполнитель D1; решения автора briefs/lekciya12_resheniya_ramki.md,
+   п. 3 и п. 11: вход вопросом «Почему в атмосфере молекулы не падают на
+   поверхность?» с показом столба у входа и ещё раз после Гиббса; карточка 1
+   описи briefs/lekciya12_demki_minuty.md §1.4). Блоки главы
+   pochemu-molekuly-ne-padayut, statisticheskij-integral (#faktorizaciya),
+   barometricheskaya-formula, raspredelenie-bolcmana; обёртка
+   raspredeleniya/demka-stolb-gaza.
+
+   МОДЕЛЬ. Ящик высоты H, молекулы друг с другом не сталкиваются, каждая
+   летит по параболе в однородном поле g. Потолок и боковые стенки
+   зеркальные. Пол бывает двух видов. Зеркальный отражает молекулу с той же
+   скоростью, и её энергия mv²/2 + mgz сохраняется. Тёплый отражает её
+   диффузно, как тёплые стенки движка shared/demo-gaz.js и демки
+   «Поршень и молекулы»: нормальная скорость √(kT/m)·√(−2 ln ξ), то есть с
+   весом потока v·e^(−mv²/2kT), касательная по Гауссу с дисперсией kT/m.
+   Формул распределения в счёте нет. Тёплый пол один держит равновесие
+   точно: для одной молекулы он служит термостатом, и в равновесии
+   плотность по высоте e^(−mgz/kT), а скорости на любой высоте
+   максвелловские с той же kT (statisticheskij-integral). В настоящем газе
+   ту же работу делают столкновения молекул; вариант с ударами и тяжестью
+   в движке рамка не взяла (решения, п. 11), строка показаний говорит, что
+   здесь равновесие держит пол.
+
+   СЧЁТ БЕЗ ШАГА ПО ВРЕМЕНИ. Момент следующего удара о пол или потолок есть
+   корень квадратного уравнения: о пол через (w + √(w² + 2gz₀))/g, о потолок
+   через (w − √(w² − 2g(H − z₀)))/g, если молекула туда долетает. Скорость
+   в момент удара берётся из сохранения энергии на дуге, поэтому при
+   зеркальном поле энергия держится до округления (drift в __demoState).
+   Горизонталь x отражается боковыми стенками сложением пути; глубина
+   ящика в счёт не входит, она ничего не меняет.
+
+   ЕДИНИЦЫ. H = 1, kT пола = 1, масса первого сорта 1, так что g = mgH/kT
+   первого сорта (ползунок a от 1 до 8). Второй сорт в 2, 3 или 5 раз
+   тяжелее, у него a₂ = m₂a. Время в единицах H/√(kT/m); на экране одна
+   единица идёт секунду. Старт «у пола»: все молекулы на полу с одной
+   скоростью √(3kT/m), направления вверх изотропно (cos θ равномерно, не
+   меньше 0,001, чтобы молекула с нулевой вертикальной скоростью не билась
+   о пол бесконечно часто). Старт «равновесие»: высоты по экспоненте в
+   ящике, скорости по Гауссу.
+
+   ПОКАЗАНИЯ. Выборка каждые 0,05 единицы. На экране всё сглажено по 2
+   единицам (экспоненциальное среднее отношений сумм), в __demoState
+   рядом лежат суммы с последнего сброса (смена ручки, старта или пола).
+   У дна значит z < 0,2H, выше середины z > H/2, как в счёте описи.
+   Теория в ящике: ⟨z⟩/H = 1/a − 1/(eᵃ − 1), доля выше середины
+   1/(1 + e^(a/2)), ⟨mgz⟩/kT = a⟨z⟩/H. Второй термометр kTz: a′, при
+   котором 1/a′ − 1/(e^(a′) − 1) равно измеренной ⟨z⟩/H, и kT = a/a′.
+
+   АДРЕС. ?vhod=1 для показа у входа в лекцию: кривая экспоненты, её
+   подписи, метка kT/mg и сравнение с экспонентой на табло и в строке
+   скрыты, счёт тот же (генеральная сессия 13.11 по приёмке колоды 12).
+
+   ПРОВЕРКА (hcheck на порту 49961, __demoSet/__demoTick/__demoState,
+   briefs/lekciya12_skripty/proizvodstvo/stolb-gaza_check.js; независимый
+   счёт briefs/lekciya12_skripty/proizvodstvo/stolb-gaza.py; отчёт
+   briefs/proizvodstvo12_demka-stolb-gaza_REPORT.md). 1000 молекул, a = 4,
+   тёплый пол, равновесный старт, 150 единиц, зёрна 1–4: ⟨z⟩/H
+   0,2305–0,2316 против 0,2313 (опись 0,2305; python, зёрна 1–4,
+   0,2312–0,2320); ⟨mgz⟩/kT 0,922–0,926 против 0,925; m⟨v_z²⟩ у дна
+   0,996–1,001, выше середины 0,996–1,012 (опись 0,995 и 1,007; python
+   0,999–1,004 и 0,994–1,008); эксцесс v_z 2,99–3,01; доля выше середины
+   0,118–0,120 против 0,1192; время между ударами о пол 0,614–0,615 против
+   0,6152 по интегралу (опись 0,615 и 0,613). Смесь 500 + 500, второй сорт
+   втрое тяжелее: ⟨z⟩/H второго 0,0829 и 0,0831 против 0,0833 (python
+   0,0834 и 0,0835). Отрицательный контроль: зеркальный пол и старт у пола
+   дают ⟨z⟩/H 0,0865 и 0,0866 против 0,2313, выше середины ни одной
+   молекулы; у такого старта ⟨z⟩ = ⟨v²⟩/3g по скоростям старта, 0,0865 и
+   0,0866 (в среднем по стартам 1/12; опись 0,086); энергия держится до
+   6·10⁻¹⁶. Показ: после включения тёплого пола экранное ⟨z⟩/H через 10 с
+   0,233, через 20 с 0,232. У воздуха при 0 °C kT/mg = 7994 м, 8,0 км
+   (M = 28,97 г/моль), при 294 К 8604 м, 8,6 км восьмой недели. */
+
+var W = 1000, HGT = 460;
+var SKOROST = 1;          /* единиц времени модели за секунду экрана */
+var DT_S = 0.05;          /* шаг выборки */
+var TAU = 2;              /* сглаживание показаний на экране, единиц */
+var NIZ = 0.2, VERH = 0.5;
+var NBZ = 20;             /* столбиков высоты на экране */
+var NBV = 32, VMAX = 4;   /* колокол v_z: столбиков и предел в √(kT/m) */
+var BX0 = 74, BX1 = 304, BY0 = 52, BY1 = 392;   /* ящик: z = H наверху, z = 0 у пола */
+var LX = (BX1 - BX0) / (BY1 - BY0);             /* ширина ящика в единицах H */
+var GX0 = 334, GX1 = 566;                       /* гистограмма высот */
+var VX0 = 616, VX1 = 980, VA0 = 56, VA1 = 152, VB0 = 204, VB1 = 300;   /* колокола */
+var CS = ['77,182,198', '236,140,84'];          /* первый и второй сорт */
+var C_TEPL = '232,84,84', C_ZERK = '150,170,205';
+var MASSY = [0, 2, 3, 5];
+var LOG_MIN = 1e-3;
+
+/* Датчик со своим зерном: прогон повторяется для автопроверки. */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/* ── теория в ящике высоты 1 ── */
+function zTeor(a) { return 1 / a - 1 / Math.expm1(a); }
+function verhTeor(a) { return 1 / (1 + Math.exp(a / 2)); }
+/* ⟨z²⟩ у той же экспоненты */
+function z2Teor(a) { var e = Math.exp(-a); return (2 / (a * a) - e * (1 + 2 / a + 2 / (a * a))) / -Math.expm1(-a); }
+/* Допуск строки «столб стоит»: 4 % средней высоты или 1,8σ/√n, где σ
+   разброс высоты у экспоненты, n число молекул сорта. Экранная средняя
+   высота при сглаживании по 2 единицам ходит в равновесии на 0,37σ/√n
+   (hcheck, 1500 выборок на 100 и 1000 молекул, a от 1 до 8), так что
+   допуск около пяти её стандартных отклонений. */
+function dopusk(a, n) { var z = zTeor(a); return Math.max(0.04 * z, 1.8 * Math.sqrt(z2Teor(a) - z * z) / Math.sqrt(n)); }
+function blizko(z, a, n) { return z != null && n > 0 && Math.abs(z - zTeor(a)) < dopusk(a, n); }
+/* доля в слое [z1, z2] у экспоненты e^(−az) в ящике */
+function sloj(a, z1, z2) { return (Math.exp(-a * z1) - Math.exp(-a * z2)) / -Math.expm1(-a); }
+/* a′ по измеренной средней высоте: zTeor убывает от 1/2 до 0 */
+function aPoZ(z) {
+  if (!(z > 0 && z < 0.5)) return null;
+  var lo = 1e-6, hi = 400;
+  for (var i = 0; i < 100; i++) { var mid = Math.sqrt(lo * hi); if (zTeor(mid) > z) lo = mid; else hi = mid; }
+  return Math.sqrt(lo * hi);
+}
+
+/* ── модель ── */
+
+function novyj(p) {
+  var N = p.N, n2 = p.mass2 ? Math.floor(N / 2) : 0, rnd = mulberry32(p.seed), i;
+  var M = { p: p, N: N, n1: N - n2, n2: n2, g: p.a, warm: p.warm, bylTeplyj: !!p.warm, rnd: rnd, t: 0, nextS: DT_S, zap: null,
+            sort: new Uint8Array(N), m: new Float64Array(N), s: new Float64Array(N),
+            t0: new Float64Array(N), z0: new Float64Array(N), w0: new Float64Array(N),
+            te: new Float64Array(N), ceil: new Uint8Array(N),
+            x0: new Float64Array(N), vx: new Float64Array(N), tx0: new Float64Array(N),
+            zb: new Float64Array(N), xb: new Float64Array(N) };
+  M.gauss = function () {
+    if (M.zap != null) { var r = M.zap; M.zap = null; return r; }
+    var u = 1 - rnd(), v = rnd(), q = Math.sqrt(-2 * Math.log(u));
+    M.zap = q * Math.sin(2 * Math.PI * v);
+    return q * Math.cos(2 * Math.PI * v);
+  };
+  for (i = 0; i < N; i++) {
+    var k = i >= N - n2 ? 1 : 0, m = k ? p.mass2 : 1, s = 1 / Math.sqrt(m), a = M.g * m;
+    M.sort[i] = k; M.m[i] = m; M.s[i] = s;
+    M.x0[i] = LX * rnd();
+    if (p.start === 'ravn') {
+      M.z0[i] = -Math.log1p(-rnd() * -Math.expm1(-a)) / a;
+      M.w0[i] = s * M.gauss(); M.vx[i] = s * M.gauss();
+    } else {
+      var c = Math.max(0.001, 1 - rnd()), v = Math.sqrt(3) * s, f = 2 * Math.PI * rnd();
+      M.z0[i] = 0; M.w0[i] = v * c; M.vx[i] = v * Math.sqrt(1 - c * c) * Math.cos(f);
+    }
+    plan(M, i);
+  }
+  sbros(M, true);
+  return M;
+}
+
+/* Следующий удар молекулы i о пол или потолок. */
+function plan(M, i) {
+  var w = M.w0[i], z = M.z0[i], g = M.g;
+  var tf = (w + Math.sqrt(w * w + 2 * g * z)) / g, tc = Infinity;
+  if (w > 0) { var d = w * w - 2 * g * (1 - z); if (d > 0) tc = (w - Math.sqrt(d)) / g; }
+  if (tc < tf) { M.te[i] = M.t0[i] + tc; M.ceil[i] = 1; }
+  else { M.te[i] = M.t0[i] + tf; M.ceil[i] = 0; }
+}
+
+function xAt(M, i, t) {
+  var u = M.x0[i] + M.vx[i] * (t - M.tx0[i]), L2 = 2 * LX;
+  u = u % L2; if (u < 0) u += L2;
+  return u > LX ? L2 - u : u;
+}
+
+function sobytie(M, i) {
+  var w = M.w0[i], z = M.z0[i], g = M.g, te = M.te[i], wn;
+  if (M.ceil[i]) {
+    wn = -Math.sqrt(Math.max(0, w * w - 2 * g * (1 - z)));
+    M.z0[i] = 1;
+  } else {
+    if (M.warm) {
+      wn = Math.max(1e-6, M.s[i] * Math.sqrt(-2 * Math.log(1 - M.rnd())));
+      M.x0[i] = xAt(M, i, te); M.tx0[i] = te; M.vx[i] = M.s[i] * M.gauss();
+      if (M.sort[i] === 0) M.A.udary++;
+    } else wn = Math.sqrt(w * w + 2 * g * z);
+    M.z0[i] = 0;
+  }
+  M.w0[i] = wn; M.t0[i] = te;
+  plan(M, i);
+}
+
+function dojti(M, t) {
+  for (var i = 0; i < M.N; i++) {
+    var k = 0;
+    while (M.te[i] <= t && k < 10000) { sobytie(M, i); k++; }
+  }
+}
+
+/* Сброс накоплений. vse: и сглаженных экранных (новый газ). */
+function sbros(M, vse) {
+  M.A = { K: 0, t0: M.t, n: [0, 0], sz: [0, 0], up: 0, udary: 0, kTv: 0,
+          lo: { n: 0, v2: 0, v4: 0, x2: 0 }, hi: { n: 0, v2: 0, v4: 0, x2: 0 },
+          h10: new Float64Array(10), E0: null, drift: 0 };
+  if (vse) M.E = { w: 0, n: [0, 0], sz: [0, 0], up: 0, lo: [0, 0], hi: [0, 0],
+                   hz: [new Float64Array(NBZ), new Float64Array(NBZ)],
+                   hl: new Float64Array(NBV), hh: new Float64Array(NBV) };
+}
+
+/* Выборка в момент ts: накопления с последнего сброса и сглаженные. */
+function vyborka(M, ts) {
+  var A = M.A, E = M.E, g = M.g, N = M.N, i;
+  var n = [0, 0], sz = [0, 0], up = 0, lo = [0, 0], hi = [0, 0], en = 0;
+  var hz = [new Float64Array(NBZ), new Float64Array(NBZ)], hl = new Float64Array(NBV), hh = new Float64Array(NBV);
+  var bv = 2 * VMAX / NBV;
+  for (i = 0; i < N; i++) {
+    var tau = ts - M.t0[i], w = M.w0[i] - g * tau, z = M.z0[i] + M.w0[i] * tau - 0.5 * g * tau * tau;
+    if (z < 0) z = 0; if (z > 1) z = 1;
+    var k = M.sort[i];
+    n[k]++; sz[k] += z;
+    hz[k][Math.min(NBZ - 1, Math.floor(z * NBZ))]++;
+    if (!M.warm) en += M.m[i] * (0.5 * (w * w + M.vx[i] * M.vx[i]) + g * z);
+    if (k) continue;
+    A.kTv += w * w;
+    A.h10[Math.min(9, Math.floor(z * 10))]++;
+    var b = Math.floor((w + VMAX) / bv);
+    if (z > VERH) {
+      up++; hi[0]++; hi[1] += w * w;
+      A.hi.n++; A.hi.v2 += w * w; A.hi.v4 += w * w * w * w; A.hi.x2 += M.vx[i] * M.vx[i];
+      if (b >= 0 && b < NBV) hh[b]++;
+    } else if (z < NIZ) {
+      lo[0]++; lo[1] += w * w;
+      A.lo.n++; A.lo.v2 += w * w; A.lo.v4 += w * w * w * w; A.lo.x2 += M.vx[i] * M.vx[i];
+      if (b >= 0 && b < NBV) hl[b]++;
+    }
+  }
+  A.K++; A.n[0] += n[0]; A.n[1] += n[1]; A.sz[0] += sz[0]; A.sz[1] += sz[1]; A.up += up;
+  if (!M.warm) {
+    if (A.E0 == null) A.E0 = en;
+    else A.drift = Math.max(A.drift, Math.abs(en - A.E0) / A.E0);
+  }
+  /* сглаженные: отношения сглаженных сумм, смещение к нулю сокращается */
+  var al = DT_S / TAU, q = 1 - al, j;
+  E.w = E.w * q + al;
+  for (j = 0; j < 2; j++) { E.n[j] = E.n[j] * q + al * n[j]; E.sz[j] = E.sz[j] * q + al * sz[j]; }
+  E.up = E.up * q + al * up;
+  for (j = 0; j < 2; j++) { E.lo[j] = E.lo[j] * q + al * lo[j]; E.hi[j] = E.hi[j] * q + al * hi[j]; }
+  for (j = 0; j < NBZ; j++) { E.hz[0][j] = E.hz[0][j] * q + al * hz[0][j]; E.hz[1][j] = E.hz[1][j] * q + al * hz[1][j]; }
+  for (j = 0; j < NBV; j++) { E.hl[j] = E.hl[j] * q + al * hl[j]; E.hh[j] = E.hh[j] * q + al * hh[j]; }
+}
+
+/* Модель вперёд до момента t1 с выборками на сетке DT_S. */
+function vpered(M, t1) {
+  while (M.nextS <= t1) { dojti(M, M.nextS); vyborka(M, M.nextS); M.nextS += DT_S; }
+  dojti(M, t1);
+  M.t = t1;
+}
+
+function polozheniya(M) {
+  var g = M.g, t = M.t;
+  for (var i = 0; i < M.N; i++) {
+    var tau = t - M.t0[i], z = M.z0[i] + M.w0[i] * tau - 0.5 * g * tau * tau;
+    M.zb[i] = z < 0 ? 0 : z > 1 ? 1 : z;
+    M.xb[i] = xAt(M, i, t);
+  }
+}
+
+/* Показания: то, что демка утверждает. */
+function pokazaniya(M) {
+  var A = M.A, E = M.E, a = M.g, a2 = M.p.mass2 ? M.p.mass2 * a : null;
+  var zM = A.n[0] ? A.sz[0] / A.n[0] : null, ap = zM != null ? aPoZ(zM) : null;
+  var ku = function (r) { return r.n ? r.v4 / r.n / Math.pow(r.v2 / r.n, 2) : null; };
+  var h10 = [];
+  for (var b = 0; b < 10; b++) h10.push(A.n[0] ? (A.h10[b] / A.n[0]) / sloj(a, b / 10, (b + 1) / 10) : null);
+  var tA = M.t - A.t0;
+  return {
+    N: M.N, n1: M.n1, n2: M.n2, mass2: M.p.mass2, a: a, a2: a2, warm: M.warm, bylTeplyj: M.bylTeplyj, start: M.p.start, seed: M.p.seed,
+    t: M.t, tNakop: tA, samples: A.K,
+    zMean: zM, zTheory: zTeor(a), mgzOverKT: zM != null ? a * zM : null, mgzTheory: a * zTeor(a),
+    kTv: A.n[0] ? A.kTv / A.n[0] : null, kTz: ap ? a / ap : null,
+    fracUpper: A.n[0] ? A.up / A.n[0] : null, fracUpperTheory: verhTeor(a),
+    fracLow: A.n[0] ? A.lo.n / A.n[0] : null,
+    vz2Low: A.lo.n ? A.lo.v2 / A.lo.n : null, vz2High: A.hi.n ? A.hi.v2 / A.hi.n : null,
+    vx2Low: A.lo.n ? A.lo.x2 / A.lo.n : null, vx2High: A.hi.n ? A.hi.x2 / A.hi.n : null,
+    kurtLow: ku(A.lo), kurtHigh: ku(A.hi), nHigh: A.hi.n,
+    zMean2: A.n[1] ? A.sz[1] / A.n[1] : null, zTheory2: a2 ? zTeor(a2) : null,
+    histZ: h10,
+    floorTime: A.udary ? M.n1 * tA / A.udary : null,
+    drift: M.warm ? null : A.drift,
+    ekran: {
+      zMean: E.n[0] ? E.sz[0] / E.n[0] : null, fracUpper: E.n[0] ? E.up / E.n[0] : null,
+      vz2Low: E.lo[0] > 1e-9 ? E.lo[1] / E.lo[0] : null, vz2High: E.hi[0] > 1e-9 ? E.hi[1] / E.hi[0] : null,
+      nHigh: E.hi[0] / (E.w || 1), zMean2: E.n[1] ? E.sz[1] / E.n[1] : null
+    }
+  };
+}
+
+/* Русская запятая и настоящий минус. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+function proc(v, d) { return v == null ? '—' : num(100 * v, d == null ? 1 : d) + ' %'; }
+/* ── конец чистой физики ── */
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+/* Самая длинная фраза строки показаний: держит её высоту. */
+var TEN = 'Пол зеркальный: энергия каждой молекулы сохраняется, и выше 3kT/2mg = 0,375 H не поднимется ни одна. ' +
+  'Столб не встаёт: средняя высота 0,086 H против 0,231 H у экспоненты, выше середины ни одной молекулы. ' +
+  'Второй сорт в 5 раз тяжелее: средняя высота 0,017 H против 0,050 H у его экспоненты. WWWWWWW';
+
+function Stolb() {
+  var box = useRef(null);
+  if (!box.current) {
+    var p0 = { N: 1000, a: 4, mass2: 0, warm: false, start: 'pol', seed: (Math.random() * 4294967296) >>> 0 };
+    box.current = { p: p0, M: novyj(p0), log: false };
+  }
+  var S = box.current;
+  var pair = useState(0), setUi = pair[1];
+  var ui = useRef({ last: 0 });
+  function obnovit() { setUi(function (n) { return n + 1; }); }
+
+  function snyat() {
+    var q = pokazaniya(S.M);
+    for (var k in pokaz) delete pokaz[k];
+    Object.assign(pokaz, q);
+  }
+  if (pokaz.N == null) snyat();
+
+  function zanovo(o) {
+    Object.assign(S.p, o || {});
+    if (!o || o.seed == null) S.p.seed = (Math.random() * 4294967296) >>> 0;
+    S.M = novyj(Object.assign({}, S.p));
+    snyat(); obnovit();
+  }
+
+  function step(dt) {
+    var t1 = S.M.t + Math.min(dt, 0.05) * SKOROST;
+    vpered(S.M, t1);
+    snyat();
+    ui.current.last += dt;
+    if (ui.current.last > 0.5) { ui.current.last = 0; obnovit(); }
+  }
+
+  /* ── рисунок ── */
+
+  function sub(ctx, x, y, a, s, b, size, color, align) {
+    /* строка с нижним индексом: a, затем s мельче и ниже, затем b */
+    ctx.font = size + 'px "Golos Text", system-ui, sans-serif';
+    var wa = ctx.measureText(a).width, wb = ctx.measureText(b).width;
+    ctx.font = Math.round(size * 0.7) + 'px "Golos Text", system-ui, sans-serif';
+    var ws = ctx.measureText(s).width, wt = wa + ws + wb;
+    var x0 = align === 'left' ? x : align === 'right' ? x - wt : x - wt / 2;
+    C.label(ctx, x0, y, a, size, color, 'left');
+    C.label(ctx, x0 + wa, y + size * 0.25, s, Math.round(size * 0.7), color, 'left');
+    C.label(ctx, x0 + wa + ws, y, b, size, color, 'left');
+  }
+
+  function zY(z) { return BY1 - z * (BY1 - BY0); }
+
+  function yashchik(ctx, M, ink, mut) {
+    var i, k;
+    polozheniya(M);
+    /* уровни середины и дна */
+    ctx.save(); ctx.setLineDash([5, 5]); ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(' + mut + ',.7)';
+    [VERH, NIZ].forEach(function (z) { ctx.beginPath(); ctx.moveTo(BX0, zY(z)); ctx.lineTo(GX1, zY(z)); ctx.stroke(); });
+    ctx.restore();
+    C.label(ctx, BX0 - 8, zY(1) + 6, 'H', 17, 'rgba(' + mut + ',.95)', 'right');
+    C.label(ctx, BX0 - 8, zY(VERH) + 6, 'H/2', 17, 'rgba(' + mut + ',.95)', 'right');
+    C.label(ctx, BX0 - 8, zY(NIZ) + 6, '0,2H', 17, 'rgba(' + mut + ',.95)', 'right');
+    C.label(ctx, BX0 - 8, zY(0) + 6, '0', 17, 'rgba(' + mut + ',.95)', 'right');
+    /* молекулы: сначала тяжёлые, сверху лёгкие */
+    for (k = 1; k >= 0; k--) {
+      ctx.fillStyle = 'rgba(' + CS[k] + ',.85)';
+      ctx.beginPath();
+      for (i = 0; i < M.N; i++) {
+        if (M.sort[i] !== k) continue;
+        var X = BX0 + M.xb[i] * (BY1 - BY0), Y = zY(M.zb[i]) - 2.6;
+        ctx.moveTo(X + 2.6, Y); ctx.arc(X, Y, 2.6, 0, 6.284);
+      }
+      ctx.fill();
+    }
+    /* стенки, потолок и пол */
+    ctx.strokeStyle = 'rgba(' + ink + ',.75)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(BX0 - 1, BY1); ctx.lineTo(BX0 - 1, BY0 - 1); ctx.lineTo(BX1 + 1, BY0 - 1); ctx.lineTo(BX1 + 1, BY1); ctx.stroke();
+    var cf = M.warm ? C_TEPL : C_ZERK;
+    if (M.warm) C.glow(ctx, (BX0 + BX1) / 2, BY1 + 3, 70, C_TEPL, .25);
+    ctx.strokeStyle = 'rgb(' + cf + ')'; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(BX0 - 4, BY1 + 3); ctx.lineTo(BX1 + 4, BY1 + 3); ctx.stroke();
+    C.label(ctx, (BX0 + BX1) / 2, BY1 + 30, M.warm ? 'пол тёплый, kT' : 'пол зеркальный', 18, 'rgb(' + cf + ')');
+    C.label(ctx, (BX0 + BX1) / 2, 32, M.N + ' ' + C.plural(M.N, 'молекула', 'молекулы', 'молекул') + ', вид сбоку', 17, 'rgba(' + mut + ',.95)');
+  }
+
+  /* Гистограмма высот: n(z)/n(0), где n(0) у экспоненты с тем же числом
+     молекул; кривая exp(−mgz/kT) проходит через середины столбиков. */
+  function gisto(ctx, M, ink, mut) {
+    var E = M.E, a = M.g, j, k, bz = 1 / NBZ, hb = (BY1 - BY0) / NBZ;
+    var X = function (v) {
+      if (S.log) {
+        var l = Math.log10(Math.max(LOG_MIN, v)) - Math.log10(LOG_MIN);
+        return GX0 + Math.max(0, l) / -Math.log10(LOG_MIN) * (GX1 - GX0);
+      }
+      return GX0 + Math.min(1.08, v) / 1.08 * (GX1 - GX0);
+    };
+    C.label(ctx, (GX0 + GX1) / 2, 32, 'молекул на высоте z', 17, 'rgba(' + mut + ',.95)');
+    var sorta = M.n2 ? [0, 1] : [0];
+    sorta.forEach(function (k) {
+      var ak = k ? M.p.mass2 * a : a, n0 = ak / -Math.expm1(-ak), nn = E.n[k];
+      if (!nn) return;
+      ctx.fillStyle = 'rgba(' + CS[k] + ',' + (M.n2 ? '.42' : '.55') + ')';
+      for (j = 0; j < NBZ; j++) {
+        var v = E.hz[k][j] / nn / bz / n0, x1 = X(v);
+        if (x1 - GX0 > 0.5) ctx.fillRect(GX0, BY1 - (j + 1) * hb + 1, x1 - GX0, hb - 2);
+      }
+    });
+    if (!VHOD) sorta.forEach(function (k) {
+      var ak = k ? M.p.mass2 * a : a;
+      ctx.strokeStyle = k ? 'rgb(' + CS[1] + ')' : 'rgba(' + ink + ',.92)'; ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      for (j = 0; j <= 200; j++) {
+        var z = j / 200, v = Math.exp(-ak * z);
+        if (S.log && v < LOG_MIN) break;   /* ниже края шкалы кривую не тянем по оси */
+        if (j) ctx.lineTo(X(v), zY(z)); else ctx.moveTo(X(v), zY(z));
+      }
+      ctx.stroke();
+    });
+    /* ось и деления */
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(GX0, BY0); ctx.lineTo(GX0, BY1); ctx.lineTo(GX1, BY1); ctx.stroke();
+    var tiki = S.log ? [[1e-3, '0,001'], [1e-2, '0,01'], [0.1, '0,1'], [1, '1']] : [[0, '0'], [0.5, '0,5'], [1, '1']];
+    tiki.forEach(function (t) {
+      var x = X(t[0]);
+      ctx.beginPath(); ctx.moveTo(x, BY1); ctx.lineTo(x, BY1 + 5); ctx.stroke();
+      C.label(ctx, x, BY1 + 22, t[1], 17, 'rgba(' + mut + ',.95)');
+    });
+    C.label(ctx, GX1, BY1 + 46, 'n(z)/n(0)', 17, 'rgba(' + mut + ',.95)', 'right');
+    if (VHOD) return;   /* у входа кривой и её подписей нет */
+    /* подпись кривой под осью, образцом линии */
+    ctx.strokeStyle = 'rgba(' + ink + ',.92)'; ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.moveTo(GX0, BY1 + 40); ctx.lineTo(GX0 + 16, BY1 + 40); ctx.stroke();
+    C.label(ctx, GX0 + 22, BY1 + 46, 'exp(−mgz/kT)', 17, 'rgba(' + ink + ',.9)', 'left');
+    /* высота kT/mg первого сорта: метка на оси и подпись справа от кривой */
+    if (1 / a <= 1) {
+      var yk = zY(1 / a);
+      ctx.strokeStyle = 'rgba(' + ink + ',.8)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(GX0 - 6, yk); ctx.lineTo(GX0 + 6, yk); ctx.stroke();
+      C.label(ctx, X(Math.exp(-1)) + 10, yk + 6, 'kT/mg', 17, 'rgba(' + ink + ',.9)', 'left');
+    }
+  }
+
+  /* Колокол v_z первого сорта в слое и Гаусс с дисперсией kT/m. */
+  function kolokol(ctx, hist, Y0, Y1, sloj, v2, ink, mut) {
+    var tot = 0, j, bv = 2 * VMAX / NBV, sx = (VX1 - VX0) / (2 * VMAX);
+    for (j = 0; j < NBV; j++) tot += hist[j];
+    var top = 1.25 / Math.sqrt(2 * Math.PI), ky = (Y1 - Y0) / top;
+    sub(ctx, VX0, Y0 - 12, 'v', 'z', ' ' + sloj, 17, 'rgba(' + mut + ',.95)', 'left');
+    if (tot > 1e-6) {
+      ctx.fillStyle = 'rgba(' + CS[0] + ',.55)';
+      for (j = 0; j < NBV; j++) {
+        var hp = Math.min(Y1 - Y0, hist[j] / tot / bv * ky);
+        if (hp > 0.5) ctx.fillRect(VX0 + j * bv * sx + 1, Y1 - hp, bv * sx - 2, hp);
+      }
+    }
+    if (!VHOD) {   /* у входа и Гаусса нет: распределение скоростей тоже впереди */
+      ctx.strokeStyle = 'rgba(' + ink + ',.92)'; ctx.lineWidth = 2; ctx.beginPath();
+      for (j = 0; j <= 200; j++) {
+        var v = -VMAX + 2 * VMAX * j / 200, f = Math.exp(-v * v / 2) / Math.sqrt(2 * Math.PI);
+        var X = VX0 + (v + VMAX) * sx, Y = Y1 - f * ky;
+        if (j) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+      }
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(VX0, Y1); ctx.lineTo(VX1, Y1); ctx.stroke();
+    if (tot > 1e-6 && v2 != null) sub(ctx, VX1, Y0 - 12, 'm⟨v', 'z', '²⟩ = ' + num(v2, 2) + ' kT', 17, 'rgb(' + CS[0] + ')', 'right');
+    else C.label(ctx, VX1, Y0 - 12, 'молекул нет', 17, 'rgb(' + CS[0] + ')', 'right');
+  }
+
+  function stroka(ctx, q, ink, mut) {
+    var Y = 352, e = q.ekran;
+    C.readout(ctx, 790, Y, 'СРЕДНЯЯ ВЫСОТА', e.zMean == null ? '—' : num(e.zMean, 3) + ' H', 'rgb(' + CS[0] + ')');
+    if (!VHOD) C.label(ctx, 790, Y + 64, 'экспонента: ' + num(q.zTheory, 3) + ' H', 17, 'rgba(' + mut + ',.95)', 'right');
+    C.readout(ctx, 980, Y, 'ВЫШЕ СЕРЕДИНЫ', proc(e.fracUpper), 'rgb(' + ink + ')');
+    if (!VHOD) C.label(ctx, 980, Y + 64, 'экспонента: ' + proc(q.fracUpperTheory), 17, 'rgba(' + mut + ',.95)', 'right');
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted;
+    var q = pokaz, M = S.M;
+    if (q.N == null) return;
+    yashchik(ctx, M, ink, mut);
+    gisto(ctx, M, ink, mut);
+    kolokol(ctx, M.E.hh, VA0, VA1, 'выше середины', q.ekran.vz2High, ink, mut);
+    kolokol(ctx, M.E.hl, VB0, VB1, 'у дна', q.ekran.vz2Low, ink, mut);
+    var sx = (VX1 - VX0) / (2 * VMAX);
+    [-2, 0, 2].forEach(function (v) { C.label(ctx, VX0 + (v + VMAX) * sx, VB1 + 20, num(v, 0), 17, 'rgba(' + mut + ',.95)'); });
+    C.label(ctx, VX1, VB1 + 20, '√(kT/m)', 17, 'rgba(' + mut + ',.95)', 'right');
+    stroka(ctx, q, ink, mut);
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+
+  function pol(warm) {
+    if (S.M.warm === warm) return;
+    S.M.warm = warm; S.p.warm = warm;
+    if (warm) S.M.bylTeplyj = true;
+    sbros(S.M, false);
+    snyat(); obnovit();
+  }
+  function dvigatA(v) {
+    var a = Math.round(C.clamp(v, 1, 8) * 2) / 2;
+    if (a !== S.p.a) zanovo({ a: a });
+  }
+  function dvigatN(v) {
+    var n = Math.round(C.clamp(v, 100, 1000) / 100) * 100;
+    if (n !== S.p.N) zanovo({ N: n });
+  }
+
+  /* Для автопроверки: __demoSet({ N, a, mass2, warm, start, seed, log })
+     пересоздаёт газ (warm без прочего переключает пол на ходу, сбрасывая
+     накопления); __demoRun(единиц) двигает модель без отрисовки;
+     __demoModel даёт счёт и теорию. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.log != null) S.log = !!o.log;
+    var p = {}, nado = false;
+    ['N', 'a', 'mass2', 'start', 'seed'].forEach(function (k) { if (o[k] != null) { p[k] = o[k]; nado = true; } });
+    if (nado) { if (o.warm != null) p.warm = !!o.warm; zanovo(p); }
+    else if (o.warm != null) pol(!!o.warm);
+    else obnovit();
+    return pokaz;
+  };
+  window.__demoRun = function (T) { vpered(S.M, S.M.t + T); snyat(); return pokaz; };
+  window.__demoModel = { get M() { return S.M; }, novyj: novyj, vpered: vpered, pokazaniya: pokazaniya,
+                         zTeor: zTeor, verhTeor: verhTeor, aPoZ: aPoZ, sloj: sloj,
+                         konst: { DT_S: DT_S, TAU: TAU, SKOROST: SKOROST, NIZ: NIZ, VERH: VERH, LX: LX } };
+
+  /* ── строка под сценой ── */
+
+  /* Каждый вывод строки стоит под условием по экранным числам рядом с ней.
+     «Столб стоит», если экранная средняя высота отходит от экспоненты меньше
+     допуска dopusk(); «скорости те же», если столб стоит, выше середины в
+     среднем не меньше пяти молекул и экранные m⟨v_z²⟩ внизу и вверху
+     расходятся не больше чем на 0,1 kT. Иначе одни числа. Слова «ни одной
+     молекулы» идут по измеренной доле выше середины, заготовка о старте от
+     пола только пока пол ни разу не был тёплым (M.bylTeplyj). */
+  function slova() {
+    var q = pokaz, e = q.ekran, A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    if (e.zMean == null) return '';
+    var stoit = blizko(e.zMean, q.a, q.n1), t;
+    var vys = 'средняя высота ' + A(num(e.zMean, 3) + ' H') + (VHOD ? '' : ' против ' + num(q.zTheory, 3) + ' H у экспоненты');
+    var raz = q.mass2 === 5 ? ' раз' : ' раза', vtoroj = '';
+    if (q.n2) {
+      var v2 = A(num(e.zMean2, 3) + ' H') + ' против ' + num(q.zTheory2, 3) + ' H';
+      vtoroj = ' Второй сорт в ' + q.mass2 + raz + ' тяжелее' + (VHOD ? ': средняя высота ' + A(num(e.zMean2, 3) + ' H') + '.' : blizko(e.zMean2, q.a2, q.n2)
+        ? ', и его экспонента в ' + q.mass2 + raz + ' круче: средняя высота ' + v2 + '.'
+        : ': средняя высота ' + v2 + ' у его экспоненты.');
+    }
+    if (!q.warm) {
+      if (q.start === 'pol' && !q.bylTeplyj) {
+        var hmax = 1.5 / q.a;
+        t = 'Пол зеркальный: энергия каждой молекулы сохраняется' +
+          (hmax < 1 ? ', и выше 3kT/2mg = ' + num(hmax, 3) + ' H не поднимется ни одна' : '') + '. ' +
+          (stoit ? 'С' : 'Столб не встаёт: с') + vys.slice(1) + ', выше середины ' +
+          A(e.fracUpper === 0 ? 'ни одной молекулы' : proc(e.fracUpper)) + '.';
+      } else {
+        t = 'Пол зеркальный: энергия каждой молекулы сохраняется. ' +
+          (stoit ? 'Равновесие он не портит, но и создать его не может: ' + vys : 'С' + vys.slice(1)) + '.';
+      }
+      return t + vtoroj;
+    }
+    t = (stoit ? 'Равновесие держит тёплый пол: '
+      : 'Тёплый пол ' + (e.zMean < q.zTheory ? 'поднимает' : 'опускает') + ' столб: ') + vys + '.';
+    var vz = 'm⟨v<sub>z</sub>²⟩ ';
+    if (e.vz2High == null || e.nHigh < 5) t += ' Выше середины молекул почти нет, и колокол там не набирается.';
+    else if (stoit && Math.abs(e.vz2High - e.vz2Low) <= 0.1)
+      t += ' Скорости наверху те же, что у дна: ' + vz + A(num(e.vz2Low, 2) + ' kT') + ' внизу и ' + A(num(e.vz2High, 2) + ' kT') + ' вверху.';
+    else t += ' У дна ' + vz + A(num(e.vz2Low, 2) + ' kT') + ', выше середины ' + A(num(e.vz2High, 2) + ' kT') + '.';
+    return t + vtoroj;
+  }
+
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Пол:">
+          <${C.Btn} active=${S.M.warm} onClick=${function () { pol(true); }}>тёплый<//>
+          <${C.Btn} active=${!S.M.warm} onClick=${function () { pol(false); }}>зеркальный<//>
+        <//>
+        <${C.Group} label="Старт:">
+          <${C.Btn} active=${S.p.start === 'pol'} onClick=${function () { zanovo({ start: 'pol' }); }}>у пола<//>
+          <${C.Btn} active=${S.p.start === 'ravn'} onClick=${function () { zanovo({ start: 'ravn' }); }}>равновесие<//>
+        <//>
+        <${C.Group} label="Второй сорт:">
+          ${MASSY.map(function (m) {
+            return html`<${C.Btn} key=${m} active=${S.p.mass2 === m} onClick=${function () { if (S.p.mass2 !== m) zanovo({ mass2: m }); }}>${m ? m + 'm' : 'нет'}<//>`; })}
+        <//>
+        <${C.Slider} label="mgH/kT:" min=${1} max=${8} step=${0.5} value=${S.p.a}
+                     onChange=${dvigatA} display=${num(S.p.a, 1)} />
+        <${C.Slider} label="Молекул:" min=${100} max=${1000} step=${100} value=${S.p.N}
+                     onChange=${dvigatN} display=${String(S.p.N)} />
+        <${C.Group}>
+          <${C.Btn} active=${S.log} onClick=${function () { S.log = !S.log; obnovit(); }}>лог. шкала<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <div class="status sg-status" data-ten=${TEN}><span dangerouslySetInnerHTML=${{ __html: slova() }}></span></div>
+    </div>`;
+}
+
+C.mount(Stolb);
+</script>
+</body>
+</html>

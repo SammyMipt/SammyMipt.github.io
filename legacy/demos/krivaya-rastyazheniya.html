@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Кривая растяжения с разгрузкой</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-08/">&larr; Неделя 08</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=krivaya-rastyazheniya"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Шаг «Растянем проволоку» (блок tipy-deformacij; бриф
+   briefs/proizvodstvo08.md, исполнитель 3; карточка 6 описи
+   lekciya08_demki_minuty.md §1.4; рамка §6, демка 6; «Принято», п. 6:
+   вершина кривой есть предел прочности, разрыв отдельно, пределы
+   пропорциональности и упругости разведены, первый участок прямой).
+
+   ЧТО ЗАДАНО, А ЧТО СЧИТАЕТСЯ. Кривая нагрузки задана моделью материала со
+   справочными числами; из уравнений её не вывести, её снимают на опыте.
+   Демка считает всё остальное: путь разгрузки и повторной нагрузки,
+   остаточную деформацию, работу и вернувшуюся энергию площадями.
+   Напряжение условное: сила на начальное сечение, как в главе. Машина
+   задаёт удлинение (ползунок), а не силу, поэтому кривую после вершины
+   можно пройти: под гирями проволока на вершине рвётся сразу.
+
+   МЯГКАЯ СТАЛЬ, E = 2·10¹¹ Па (как в главе). Прямая σ = Eε до предела
+   пропорциональности 240 МПа (ε = 1,2·10⁻³). Дальше узкая нелинейная
+   полоса: квадратичная дуга с тем же наклоном на входе и нулевым на
+   выходе, до площадки текучести 250 МПа при ε = 1,3·10⁻³. Предел
+   упругости 245 МПа лежит на этой дуге. Площадка текучести до 2 %,
+   упрочнение до вершины, предела прочности 400 МПа при 20 % (кривая
+   σ_т + (σ_в − σ_т)(1 − (1 − s)³)), шейка и разрыв при 26 % и 320 МПа.
+   Числа текста главы: проволока 1 мм течёт под 20 кг и рвётся под гирями
+   32 кг (250 и 400 МПа на 0,785 мм²); у металлов два первых предела почти
+   совпадают, здесь они в 5 МПа.
+
+   РАЗГРУЗКА. Ниже предела упругости проволока идёт назад по той же кривой
+   и возвращается к прежней длине. Выше предела упругости она идёт назад
+   по прямой с наклоном E из точки, до которой дотянули, и при нуле
+   напряжения остаётся остаточная деформация ε − σ/E. Повторная нагрузка
+   идёт по той же прямой вверх до прежней точки и дальше по кривой; новая
+   граница упругости оказывается выше прежней. Если отпустить машину ниже
+   остаточной длины, проволока провисает, и напряжение равно нулю.
+
+   ЭНЕРГИЯ на кубометр: работа машины до наибольшего удлинения есть
+   площадь под кривой нагрузки, ∫σ dε (Симпсон по участкам кривой, по 200
+   отрезков). При разгрузке возвращается площадь треугольника под прямой
+   разгрузки, σ²/2E. Остальное ушло в пластическую деформацию; считаем,
+   что всё оно стало теплом (на деле около девяти десятых, остаток
+   запасает решётка), нагрев = работа/(ρc), ρ = 7800 кг/м³,
+   c = 460 Дж/(кг·К).
+
+   РЕЗИНА: неогуковская модель σ = G(λ − 1/λ²), λ = 1 + ε, G = 0,4 МПа,
+   начальный наклон 3G = 1,2 МПа. Упругая на всём ходу: разгрузка идёт по
+   той же кривой, и вся работа возвращается. Прямой она не бывает нигде:
+   при ε = 50 % напряжение на 30 % ниже прямой с начальным наклоном.
+
+   ПРОВЕРКА (15.10, node по этому же коду и hcheck на порту 49934; отчёт
+   briefs/proizvodstvo08_demki3_REPORT.md). Площадь Симпсоном против
+   точного интеграла по участкам до 2·10⁻¹⁶ (на каждом участке кривая не
+   выше кубической). При ε = 10⁻³: 200 МПа и 10⁵ Дж/м³, как в примере
+   главы. Растяжение до 1 %: работа 2,34·10⁶ Дж/м³, вернётся
+   σ²/2E = 1,56·10⁵ (6,7 %), нагрев 0,61 К, остаточная 0,875 %;
+   разгрузка до 0,5 % — проволока провисла (прямая разгрузки доходит до
+   нуля при 0,875 %), повторная нагрузка до 0,9 % — 50 МПа на той же
+   прямой. Дуга до 0,121 % и назад к 0,06 %: 120 МПа = Eε, остаточной
+   нет. Вершина 400 МПа: 314 Н, 32,0 кг; текучесть 196 Н, 20,0 кг.
+   Разрыв: работа 92,5 МДж/м³, нагрев 26 К, остаточная 25,8 %. Резина:
+   при 50 % 0,422 МПа, на 29,6 % ниже прямой, площадь против точной
+   G(λ²/2 + 1/λ − 3/2) совпадает. Отрицательный контроль: разгрузка по
+   кривой дала бы при 0,5 % после 1 % все 250 МПа вместо нуля. */
+
+/* ── чистая физика ──────────────────────────────────────────────
+   Отсюда до пометки «конец чистой физики» код не знает о браузере и
+   прогоняется в node. */
+
+var MPA = 1e6;
+var STAL = {
+  id: 'stal', E: 2e11, rho: 7800, c: 460,
+  sP: 240 * MPA, sE: 245 * MPA, sY: 250 * MPA, epsH: 0.02, sU: 400 * MPA, epsU: 0.20,
+  sF: 320 * MPA, epsF: 0.26, K: 3
+};
+STAL.epsP = STAL.sP / STAL.E;
+STAL.dl = 2 * (STAL.sY - STAL.sP) / STAL.E;    /* ширина нелинейной дуги по ε */
+STAL.epsT = STAL.epsP + STAL.dl;                 /* начало площадки */
+/* точка предела упругости на дуге: σP + E x − E x²/(2Δ) = σE */
+(function () {
+  var a = STAL.E / (2 * STAL.dl), b = -STAL.E, c = STAL.sE - STAL.sP;   /* a x² + b x + c = 0 */
+  STAL.epsE = STAL.epsP + (-b - Math.sqrt(b * b - 4 * a * c)) / (2 * a);
+})();
+
+var REZINA = { id: 'rezina', G: 0.4 * MPA, epsMaxHod: 2.0 };
+REZINA.E0 = 3 * REZINA.G;
+
+function sigmaStal(e) {
+  var m = STAL;
+  if (e <= m.epsP) return m.E * e;
+  if (e <= m.epsT) { var x = e - m.epsP; return m.sP + m.E * x - m.E * x * x / (2 * m.dl); }
+  if (e <= m.epsH) return m.sY;
+  if (e <= m.epsU) { var s = (e - m.epsH) / (m.epsU - m.epsH); return m.sY + (m.sU - m.sY) * (1 - Math.pow(1 - s, m.K)); }
+  if (e <= m.epsF) { var t = (e - m.epsU) / (m.epsF - m.epsU); return m.sU - (m.sU - m.sF) * t * t; }
+  return 0;
+}
+function sigmaRezina(e) { var l = 1 + e; return REZINA.G * (l - 1 / (l * l)); }
+function sigmaL(mat, e) { return mat === 'stal' ? sigmaStal(e) : sigmaRezina(e); }
+
+/* Площадь под кривой нагрузки от 0 до e: Симпсон по каждому гладкому
+   участку отдельно, чтобы изломы не попадали внутрь отрезков. */
+function simpson(fn, a, b, n) {
+  if (b <= a) return 0;
+  var h = (b - a) / n, s = fn(a) + fn(b);
+  for (var i = 1; i < n; i++) s += fn(a + i * h) * (i % 2 ? 4 : 2);
+  return s * h / 3;
+}
+function rabota(mat, e) {
+  var fn = function (x) { return sigmaL(mat, x); };
+  if (mat !== 'stal') return simpson(fn, 0, e, 400);
+  var uzly = [0, STAL.epsP, STAL.epsT, STAL.epsH, STAL.epsU, STAL.epsF], A = 0;
+  for (var i = 0; i + 1 < uzly.length && uzly[i] < e; i++) A += simpson(fn, uzly[i], Math.min(e, uzly[i + 1]), 200);
+  return A;
+}
+
+/* Состояние проволоки: материал, нынешнее удлинение, наибольшее, разрыв. */
+function novaya(mat) { return { mat: mat, eps: 0, epsMax: 0, broken: false, razgruzki: [] }; }
+
+/* Машина ставит удлинение e. */
+function postavit(p, e) {
+  if (e < 0) e = 0;
+  if (p.mat === 'stal' && e >= STAL.epsF && !p.broken) { p.broken = true; p.epsMax = STAL.epsF; }
+  if (!p.broken && e < p.epsMax && p.eps >= p.epsMax && plastichna(p)) {
+    /* началась разгрузка: запомнить прямую для следа */
+    p.razgruzki.push([p.epsMax, sigmaL(p.mat, p.epsMax)]);
+    if (p.razgruzki.length > 6) p.razgruzki.shift();
+  }
+  if (!p.broken && e > p.epsMax) p.epsMax = e;
+  p.eps = e;
+}
+function plastichna(p) { return p.mat === 'stal' && p.epsMax > STAL.epsE; }
+
+/* Что утверждает демка в этом состоянии. */
+function svodka(p) {
+  var m = p.mat, out = { material: m, eps: p.eps, epsMax: p.epsMax, broken: p.broken, slack: false };
+  var sm = p.broken ? STAL.sF : sigmaL(m, p.epsMax);
+  out.sigmaMax = sm;
+  var A = rabota(m, p.epsMax);
+  out.workIn = A;
+  if (m === 'stal') {
+    var plast = plastichna(p);
+    out.epsResidual = plast ? p.epsMax - sm / STAL.E : 0;
+    if (p.broken) out.sigma = 0;
+    else if (p.eps >= p.epsMax || !plast) out.sigma = sigmaL(m, p.eps);
+    else out.sigma = Math.max(0, sm - STAL.E * (p.epsMax - p.eps));
+    out.slack = !p.broken && plast && p.eps < out.epsResidual;
+    /* вернётся при полной разгрузке; у порванной упругая энергия
+       выделилась при разрыве волнами и тоже стала теплом */
+    out.workBack = p.broken ? 0 : plast ? sm * sm / (2 * STAL.E) : A;
+    out.heat = (A - out.workBack) / (STAL.rho * STAL.c);
+    out.backShare = p.broken ? null : A > 0 ? out.workBack / A : 1;
+    var e = p.epsMax;
+    out.zone = p.broken ? 'razryv'
+      : e <= STAL.epsP ? 'pryamaya'
+      : e <= STAL.epsE ? 'uprugaya-duga'
+      : e <= STAL.epsT ? 'plastichnaya-duga'
+      : e <= STAL.epsH ? 'tekuchest'
+      : e <= STAL.epsU ? 'uprochnenie' : 'shejka';
+    out.unloading = !p.broken && p.eps < p.epsMax;
+    /* проволока диаметром 1 мм */
+    var S = Math.PI * 0.0005 * 0.0005;
+    out.forceN = out.sigma * S; out.forceKg = out.forceN / 9.81;
+    out.deviation = null;
+  } else {
+    out.epsResidual = 0;
+    out.sigma = sigmaL(m, p.eps);
+    out.workBack = A; out.heat = 0; out.backShare = 1;
+    out.zone = 'rezina';
+    out.unloading = p.eps < p.epsMax;
+    out.deviation = p.eps > 0 ? 1 - out.sigma / (REZINA.E0 * p.eps) : 0;
+    out.forceN = null; out.forceKg = null;
+  }
+  return out;
+}
+/* ── конец чистой физики ── */
+
+/* ══════════════════ сцена ══════════════════
+
+   Сверху проволока между зажимами машины, длина в масштабе (у стали до
+   площадки удлинение на глаз не видно, и это честно). Слева начало
+   кривой крупно, справа вся кривая. Площадь под путём нагрузки
+   оранжевая — ушло в тепло, треугольник под прямой разгрузки синий —
+   вернётся. Внизу показания. */
+
+var W = 1000, HGT = 450;
+var CV_HEAT = '232,140,56', CV_BACK = '56,150,205', CV_MARK = '200,80,140';
+var PANELI = {
+  stal: [
+    { x0: 70, x1: 470, y0: 128, y1: 326, eMax: 0.0025, sMax: 300 * MPA, eTicks: [0, 0.001, 0.002], eDig: 1,
+      sTicks: [0, 100, 200, 300], titul: 'начало кривой' },
+    { x0: 590, x1: 975, y0: 128, y1: 326, eMax: 0.30, sMax: 450 * MPA, eTicks: [0, 0.1, 0.2], eDig: 0,
+      sTicks: [0, 100, 200, 300, 400], titul: 'вся кривая' }
+  ],
+  rezina: [
+    { x0: 70, x1: 470, y0: 128, y1: 326, eMax: 0.2, sMax: 0.3 * MPA, eTicks: [0, 0.1], eDig: 0,
+      sTicks: [0, 0.1, 0.2, 0.3], sDig: 1, titul: 'начало кривой' },
+    { x0: 590, x1: 975, y0: 128, y1: 326, eMax: 2.0, sMax: 1.5 * MPA, eTicks: [0, 0.5, 1, 1.5], eDig: 0,
+      sTicks: [0, 0.5, 1, 1.5], sDig: 1, titul: 'вся кривая' }
+  ]
+};
+var RY = 378;
+
+/* Ползунок: 0…1000. У стали первые 400 делений — начало кривой до
+   0,25 %, остальные 600 — до 27 %; у резины равномерно до 200 %. */
+var POZ = 1000;
+function epsIzPoz(mat, k) {
+  if (mat === 'stal') return k <= 400 ? 0.0025 * k / 400 : 0.0025 + (0.27 - 0.0025) * (k - 400) / 600;
+  return REZINA.epsMaxHod * k / POZ;
+}
+function pozIzEps(mat, e) {
+  if (mat === 'stal') return e <= 0.0025 ? e / 0.0025 * 400 : 400 + (e - 0.0025) / (0.27 - 0.0025) * 600;
+  return e / REZINA.epsMaxHod * POZ;
+}
+
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+function procent(e) { return num(e * 100, e < 0.0995 ? (e < 0.00995 ? 3 : 2) : 1) + ' %'; }
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function Krivaya() {
+  var box = useRef(null);
+  if (!box.current) box.current = { p: novaya('stal') };
+  var S = box.current;
+  var pair = useState({ mat: 'stal', poz: 0, n: 0 });
+  var ui = pair[0], setUi = pair[1];
+
+  function snyat() {
+    var s = svodka(S.p);
+    for (var k in pokaz) delete pokaz[k];
+    Object.assign(pokaz, s, { limits: S.p.mat === 'stal'
+      ? { sP: STAL.sP, epsP: STAL.epsP, sE: STAL.sE, epsE: STAL.epsE, sY: STAL.sY, epsT: STAL.epsT, sU: STAL.sU, epsU: STAL.epsU, sF: STAL.sF, epsF: STAL.epsF }
+      : null });
+    return s;
+  }
+  if (!pokaz.material) snyat();
+
+  function obnovit() {
+    snyat();
+    setUi(function (u) { return { mat: S.p.mat, poz: pozIzEps(S.p.mat, S.p.eps), n: u.n + 1 }; });
+  }
+  function dvigat(k) { postavit(S.p, epsIzPoz(S.p.mat, k)); obnovit(); }
+  function razgruzit() {
+    var s = svodka(S.p);
+    postavit(S.p, s.epsResidual);
+    obnovit();
+  }
+  function vybrat(m) { S.p = novaya(m); obnovit(); }
+  function novayaPr() { S.p = novaya(S.p.mat); obnovit(); }
+
+  /* Для автопроверки: __demoSet({ material, eps, reset }) — машина ставит
+     удлинение eps (с разгрузкой и повторной нагрузкой по правилам выше);
+     __demoAction('unload') — разгрузить до нуля напряжения. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.material && o.material !== S.p.mat) S.p = novaya(o.material);
+    if (o.reset) S.p = novaya(S.p.mat);
+    if (o.eps != null) postavit(S.p, o.eps);
+    obnovit();
+    return pokaz;
+  };
+  window.__demoAction = function (name) { if (name === 'unload') razgruzit(); return pokaz; };
+  window.__demoModel = { sigmaL: sigmaL, rabota: rabota, svodka: svodka, STAL: STAL, REZINA: REZINA };
+
+  /* ── рисование ── */
+
+  function provoloka(ctx, s, tone) {
+    var ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)';
+    var L0 = 300, x0 = 46, y = 62, e = S.p.broken ? STAL.epsF : s.eps;
+    var x1 = x0 + L0 * (1 + e);
+    /* зажимы */
+    ctx.fillStyle = 'rgba(' + ink + ',.55)';
+    ctx.fillRect(x0 - 26, y - 16, 26, 32);
+    ctx.fillRect(x1, y - 16, 26, 32);
+    var tolsh = S.p.mat === 'stal' ? 5 : 9;
+    ctx.strokeStyle = S.p.mat === 'stal' ? 'rgb(' + ink + ')' : 'rgb(' + CV_HEAT + ')';
+    ctx.lineCap = 'butt';
+    if (S.p.broken) {
+      /* разрыв: два куска с шейками на концах */
+      var mid = (x0 + x1) / 2;
+      ctx.lineWidth = tolsh;
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(mid - 14, y); ctx.moveTo(mid + 14, y); ctx.lineTo(x1, y); ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(mid - 14, y); ctx.lineTo(mid - 6, y); ctx.moveTo(mid + 6, y); ctx.lineTo(mid + 14, y); ctx.stroke();
+    } else if (s.slack) {
+      /* провисла: проволока длиннее расстояния между зажимами */
+      var lishnee = (s.epsResidual - s.eps) * L0, prov = Math.min(60, Math.sqrt(Math.max(0, lishnee) * (x1 - x0)) * 0.8 + 2);
+      ctx.lineWidth = tolsh;
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.quadraticCurveTo((x0 + x1) / 2, y + 2 * prov, x1, y); ctx.stroke();
+    } else {
+      ctx.lineWidth = tolsh;
+      if (S.p.mat === 'stal' && S.p.epsMax > STAL.epsU) {
+        /* шейка: сужение в середине по мере ухода за вершину */
+        var t = (S.p.epsMax - STAL.epsU) / (STAL.epsF - STAL.epsU), mid2 = (x0 + x1) / 2;
+        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(mid2 - 30, y); ctx.moveTo(mid2 + 30, y); ctx.lineTo(x1, y); ctx.stroke();
+        ctx.lineWidth = Math.max(1.5, tolsh * (1 - 0.65 * t));
+        ctx.beginPath(); ctx.moveTo(mid2 - 30, y); ctx.lineTo(mid2 + 30, y); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+      }
+    }
+    /* подпись силы */
+    var txt;
+    if (S.p.mat === 'stal')
+      txt = S.p.broken ? 'проволока 1 мм порвалась' : 'проволока 1 мм: сила ' + num(s.forceN, 0) + ' Н, как груз ' + num(s.forceKg, 1) + ' кг';
+    else txt = 'резиновый шнур';
+    C.label(ctx, x0 - 26, y - 28, txt, 17, mut, 'left');
+  }
+
+  function panel(ctx, P, s, tone, mat) {
+    var ink = tone.ink, mut = 'rgba(' + tone.muted + ',.95)';
+    function X(e) { return P.x0 + e / P.eMax * (P.x1 - P.x0); }
+    function Y(sg) { return P.y1 - sg / P.sMax * (P.y1 - P.y0); }
+    var sDig = P.sDig || 0;
+    /* оси и сетка */
+    ctx.lineWidth = 1;
+    P.sTicks.forEach(function (v) {
+      var yy = Y(v * MPA);
+      ctx.strokeStyle = 'rgba(' + ink + ',' + (v === 0 ? '.45' : '.10') + ')';
+      ctx.beginPath(); ctx.moveTo(P.x0, yy); ctx.lineTo(P.x1, yy); ctx.stroke();
+      C.label(ctx, P.x0 - 8, yy + 6, num(v, sDig), 17, mut, 'right');
+    });
+    P.eTicks.forEach(function (v) {
+      var xx = X(v);
+      ctx.strokeStyle = 'rgba(' + ink + ',' + (v === 0 ? '.45' : '.10') + ')';
+      ctx.beginPath(); ctx.moveTo(xx, P.y0); ctx.lineTo(xx, P.y1); ctx.stroke();
+      C.label(ctx, xx, P.y1 + 22, num(v * 100, P.eDig), 17, mut);
+    });
+    C.label(ctx, P.x0 - 8, P.y0 - 16, 'σ, МПа', 17, mut, 'right');
+    C.label(ctx, P.x1, P.y1 + 22, 'ε, %', 17, mut, 'right');
+    C.label(ctx, P.x0 + 10, P.y0 - 16, P.titul, 17, mut, 'left');
+
+    ctx.save();
+    ctx.beginPath(); ctx.rect(P.x0 - 2, P.y0 - 6, P.x1 - P.x0 + 8, P.y1 - P.y0 + 8); ctx.clip();
+
+    var eTop = S.p.broken ? STAL.epsF : S.p.epsMax;
+    var eEnd = Math.min(eTop, P.eMax * 1.02);
+    /* путь нагрузки: точки сгущены у изломов кривой */
+    function put() {
+      var pts = [], n = 500, i;
+      for (i = 0; i <= n; i++) pts.push(eEnd * i / n);
+      if (mat === 'stal') [STAL.epsP, STAL.epsE, STAL.epsT, STAL.epsH, STAL.epsU].forEach(function (u) { if (u < eEnd) pts.push(u); });
+      pts.sort(function (a, b) { return a - b; });
+      return pts;
+    }
+    var pts = eEnd > 0 ? put() : [];
+
+    /* площадь под путём нагрузки и треугольник возврата */
+    if (pts.length > 1) {
+      var plast = plastichna(S.p) || S.p.broken;
+      ctx.fillStyle = plast ? 'rgba(' + CV_HEAT + ',.22)' : 'rgba(' + CV_BACK + ',.22)';
+      ctx.beginPath(); ctx.moveTo(X(0), Y(0));
+      pts.forEach(function (e) { ctx.lineTo(X(e), Y(sigmaL(mat, e))); });
+      ctx.lineTo(X(pts[pts.length - 1]), Y(0)); ctx.closePath(); ctx.fill();
+      if (plast && !S.p.broken && eTop <= P.eMax * 1.02) {
+        var sm = sigmaL(mat, eTop), er = eTop - sm / STAL.E;
+        ctx.fillStyle = 'rgba(' + CV_BACK + ',.38)';
+        ctx.beginPath(); ctx.moveTo(X(er), Y(0)); ctx.lineTo(X(eTop), Y(sm)); ctx.lineTo(X(eTop), Y(0)); ctx.closePath(); ctx.fill();
+      }
+    }
+
+    /* резина: прямая с начальным наклоном */
+    if (mat !== 'stal') {
+      ctx.save(); ctx.setLineDash([6, 6]); ctx.strokeStyle = 'rgba(' + ink + ',.45)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(P.eMax), Y(REZINA.E0 * P.eMax)); ctx.stroke(); ctx.restore();
+    }
+
+    /* прошлые разгрузки бледно */
+    ctx.lineWidth = 1.6;
+    S.p.razgruzki.forEach(function (r) {
+      ctx.strokeStyle = 'rgba(' + CV_BACK + ',.45)';
+      ctx.beginPath(); ctx.moveTo(X(r[0]), Y(r[1])); ctx.lineTo(X(r[0] - r[1] / STAL.E), Y(0)); ctx.stroke();
+    });
+
+    /* сам путь нагрузки */
+    if (pts.length > 1) {
+      ctx.strokeStyle = 'rgb(' + ink + ')'; ctx.lineWidth = 2.6; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      pts.forEach(function (e, i) { var xx = X(e), yy = Y(sigmaL(mat, e)); if (i) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy); });
+      ctx.stroke();
+      if (S.p.broken) {
+        ctx.beginPath(); ctx.moveTo(X(STAL.epsF), Y(STAL.sF)); ctx.lineTo(X(STAL.epsF), Y(0)); ctx.stroke();
+      }
+    }
+    /* нынешняя разгрузка: прямая до текущей точки и пунктир до нуля */
+    if (s.unloading && plastichna(S.p)) {
+      var sm2 = sigmaL(mat, S.p.epsMax), er2 = S.p.epsMax - sm2 / STAL.E;
+      ctx.strokeStyle = 'rgb(' + CV_BACK + ')'; ctx.lineWidth = 2.6;
+      ctx.beginPath(); ctx.moveTo(X(S.p.epsMax), Y(sm2)); ctx.lineTo(X(Math.max(s.eps, er2)), Y(s.sigma)); ctx.stroke();
+      ctx.save(); ctx.setLineDash([5, 5]); ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(X(Math.max(s.eps, er2)), Y(s.sigma)); ctx.lineTo(X(er2), Y(0)); ctx.stroke(); ctx.restore();
+    }
+    ctx.restore();
+
+    /* пределы: отмечаются, когда путь до них дошёл */
+    if (mat === 'stal') {
+      var marks = P.eMax < 0.01
+        ? [[STAL.epsP, STAL.sP, 'предел пропорциональности', 205], [STAL.epsE, STAL.sE, 'предел упругости', 172], [STAL.epsT, STAL.sY, 'предел текучести', 139]]
+        : [[STAL.epsT, STAL.sY, 'текучесть', 222], [STAL.epsU, STAL.sU, 'предел прочности', 438], [STAL.epsF, STAL.sF, 'разрыв', 330]];
+      marks.forEach(function (mk, i) {
+        if (eTop < mk[0] - 1e-12) return;
+        var xx = X(mk[0]), yy = Y(mk[1]);
+        ctx.fillStyle = 'rgb(' + CV_MARK + ')';
+        ctx.beginPath(); ctx.arc(xx, yy, 4.5, 0, 2 * Math.PI); ctx.fill();
+        if (P.eMax < 0.01) {
+          /* у начала кривой подписи уходят вправо вниз с выносками */
+          var ly = Y(mk[3] * MPA), lx = X(0.00148);
+          ctx.strokeStyle = 'rgba(' + CV_MARK + ',.7)'; ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(lx - 4, ly - 6); ctx.stroke();
+          C.label(ctx, lx, ly, mk[2], 17, 'rgb(' + CV_MARK + ')', 'left');
+        } else if (i === 0) {
+          C.label(ctx, X(0.025), Y(mk[3] * MPA), mk[2], 17, 'rgb(' + CV_MARK + ')', 'left');
+        } else if (i === 1) {
+          C.label(ctx, xx, Y(mk[3] * MPA), mk[2], 17, 'rgb(' + CV_MARK + ')', 'center');
+        } else {
+          C.label(ctx, xx + 8, Y(mk[3] * MPA) - 26, mk[2], 17, 'rgb(' + CV_MARK + ')', 'left');
+        }
+      });
+    }
+
+    /* текущая точка */
+    var eTek = S.p.broken ? STAL.epsF : s.eps;
+    if (eTek <= P.eMax * 1.02) {
+      ctx.fillStyle = 'rgb(' + ink + ')';
+      ctx.beginPath(); ctx.arc(X(eTek), Y(s.sigma), 6, 0, 2 * Math.PI); ctx.fill();
+    } else {
+      C.label(ctx, P.x1 - 4, P.y1 - 10, 'дальше на правом графике →', 17, mut, 'right');
+    }
+  }
+
+  function pokazaniya(ctx, s, tone) {
+    var ink = 'rgb(' + tone.ink + ')', stal = S.p.mat === 'stal';
+    var sg = stal ? num(s.sigma / MPA, 0) : num(s.sigma / MPA, 3);
+    var w = s.workIn / 1e3;
+    var wTxt = w < 10 ? num(w, 2) : w < 100 ? num(w, 1) : num(w, 0);
+    C.readout(ctx, 190, RY, 'НАПРЯЖЕНИЕ, МПА', sg, ink);
+    C.readout(ctx, 395, RY, 'ОСТАТОЧНАЯ, %', num(s.epsResidual * 100, s.epsResidual < 0.01 ? 3 : 2), ink);
+    C.readout(ctx, 600, RY, 'РАБОТА, КДЖ/М³', wTxt, ink);
+    C.readout(ctx, 790, RY, 'ВЕРНЁТСЯ, %', s.backShare == null ? '—' : num(s.backShare * 100, s.backShare > 0.995 ? 0 : 1), 'rgb(' + CV_BACK + ')');
+    C.readout(ctx, 975, RY, stal ? 'НАГРЕВ, К' : 'ОТ ПРЯМОЙ, %', stal ? num(s.heat, s.heat < 1 ? 2 : 1) : num(s.deviation * 100, 0),
+              stal ? 'rgb(' + CV_HEAT + ')' : ink);
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), s = svodka(S.p), mat = S.p.mat;
+    provoloka(ctx, s, tone);
+    PANELI[mat].forEach(function (P) { panel(ctx, P, s, tone, mat); });
+    pokazaniya(ctx, s, tone);
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, null, draw);
+
+  function slova() {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var s = pokaz, z = s.zone;
+    if (S.p.mat !== 'stal') {
+      if (s.eps <= 0) return 'Резиновый шнур. Тяните ползунком: кривая уходит от прямой с начальным наклоном, а при отпускании идёт назад по той же линии.';
+      return 'Резина растянута на ' + A(procent(s.eps)) + ', напряжение на ' + A(num(s.deviation * 100, 0) + ' %') +
+        ' ниже прямой с начальным наклоном. Закон Гука здесь не работает, а упругость работает: отпустите, и шнур вернётся по той же кривой, вся работа вернётся, остаточной деформации нет. Пропорциональность и упругость — разные свойства.';
+    }
+    if (S.p.broken)
+      return 'Проволока порвалась при ' + A(procent(STAL.epsF)) + ' и ' + num(STAL.sF / MPA, 0) + ' МПа, ниже вершины: после предела прочности ' +
+        num(STAL.sU / MPA, 0) + ' МПа она утончалась в одном месте, шейке, и сила падала. Под гирями сила падать не может, и проволока рвётся на вершине, под 32 кг. Работа машины до разрыва ' +
+        A(num(s.workIn / 1e6, 1) + ' МДж/м³') + ', сталь нагрелась примерно на ' + A(num(s.heat, 0) + ' К') + '.';
+    if (s.eps <= 0 && s.epsMax <= 0) return 'Мягкая сталь, проволока диаметром 1 мм. Тяните ползунком: первые две пятых его хода ведут по началу кривой до 0,25 %, остальные три пятых по всей кривой до разрыва.';
+    var head;
+    if (s.slack) head = 'Машина вернулась ближе остаточной длины: проволока провисла, напряжение ноль. Она длиннее прежней на ' + A(procent(s.epsResidual)) + '. ';
+    else if (s.unloading && plastichna(S.p)) head = 'Разгрузка идёт по прямой с наклоном E, параллельно первому участку, а не по кривой. ';
+    else if (s.unloading) head = 'Разгрузка ниже предела упругости идёт по той же кривой назад. ';
+    else head = '';
+    var zona = {
+      'pryamaya': 'Прямой участок: напряжение пропорционально удлинению, σ = Eε. Отпустите, и проволока вернётся.',
+      'uprugaya-duga': 'Пройден предел пропорциональности (' + num(STAL.sP / MPA, 0) + ' МПа): кривая уже не прямая, но до предела упругости (' + num(STAL.sE / MPA, 0) + ' МПа) проволока ещё возвращается.',
+      'plastichnaya-duga': 'Пройден предел упругости: после разгрузки проволока останется чуть длиннее.',
+      'tekuchest': 'Площадка текучести: проволока течёт при почти постоянных ' + num(STAL.sY / MPA, 0) + ' МПа, это груз ' + num(STAL.sY * Math.PI * 2.5e-7 / 9.81, 1) + ' кг на проволоку 1 мм.',
+      'uprochnenie': 'Упрочнение: чтобы тянуть дальше, нужно всё большее напряжение, до вершины кривой, предела прочности ' + num(STAL.sU / MPA, 0) + ' МПа.',
+      'shejka': 'За вершиной проволока утончается в одном месте, шейке; сила на начальное сечение падает, и скоро разрыв.'
+    }[z];
+    var en = plastichna(S.p)
+      ? ' Работа машины ' + A(s.workIn < 1e6 ? num(s.workIn / 1e3, s.workIn < 1e4 ? 1 : 0) + ' кДж/м³' : num(s.workIn / 1e6, s.workIn < 1e7 ? 2 : 1) + ' МДж/м³') + ', при разгрузке вернётся ' + A(num(s.backShare * 100, 1) + ' %') +
+        ' (синий треугольник), остальное нагрело сталь на ' + A(num(s.heat, s.heat < 1 ? 2 : 1) + ' К') + '. Остаточная деформация ' + A(procent(s.epsResidual)) + '.'
+      : '';
+    return head + zona + en;
+  }
+
+  var stal = ui.mat === 'stal';
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Материал:">
+          <${C.Btn} active=${stal} onClick=${function () { vybrat('stal'); }}>мягкая сталь<//>
+          <${C.Btn} active=${!stal} onClick=${function () { vybrat('rezina'); }}>резина<//>
+        <//>
+        <${C.Slider} label="Удлинение:" min=${0} max=${POZ} step=${1} value=${ui.poz}
+                     onChange=${function (v) { dvigat(Math.round(v)); }} display=${procent(S.p.broken ? STAL.epsF : S.p.eps)} />
+        <${C.Group}>
+          <${C.Btn} action=${true} disabled=${S.p.broken || pokaz.sigma <= 0} onClick=${razgruzit}>Разгрузить<//>
+          <${C.Btn} onClick=${novayaPr}>${stal ? 'Новая проволока' : 'Сброс'}<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Krivaya);
+</script>
+</body>
+</html>

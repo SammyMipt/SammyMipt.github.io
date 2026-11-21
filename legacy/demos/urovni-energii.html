@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Уровни энергии и теплоёмкость</title>
+<link rel="stylesheet" href="../shared/demo.css">
+<style>
+/* Местные правила, как у «изотермы» и «кипения»: demo.css общий.
+   Значение ползунка самое длинное у двух ступеней, «kT = 0,413 Δ»,
+   двенадцать знаков моноширинного шрифта; ширина постоянная, и рейка не
+   дрожит при смене набора. Строка показаний держит высоту двух строк,
+   чтобы холст под ней не прыгал, когда фраза становится короче. */
+.control-value { min-width: 12ch; }
+.status { min-height: calc(2 * 1.35em + 24px); }
+.flat .status { min-height: calc(2 * 1.35em + 8px); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-12/">&larr; Неделя 12</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=urovni-energii"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Производство недели 12, 13.11 (бриф briefs/proizvodstvo12.md, раздел
+   «Демки: пять исполнителей», D3; решения автора
+   briefs/lekciya12_resheniya_ramki.md, п. 11; опись
+   briefs/lekciya12_demki_minuty.md, карточка 3). Блоки главы
+   statisticheskaya-summa, raspredelenie-gibbsa, задача
+   zadacha-rb-dva-urovnya; обёртка raspredeleniya/demka-urovni-energii.
+   Основа: вкладка теплоёмкости HeatCapTab офлайн-сборки Марабу «Момент
+   импульса и спектры» (ротатор с кратностью 2J + 1 и колебание по
+   Эйнштейну). Счёт перенесён и расширен, вид переписан на demo-core.
+
+   ЧТО СЧИТАЕТСЯ. Уровни энергии εᵢ и их кратности gᵢ даны готовыми:
+   квантовой механики курс не даёт, ступени берутся, как у девятой недели.
+   Остальное суммой по микросостояниям, уровень входит в неё gᵢ раз:
+       Z = Σ gᵢ e^(−εᵢ/kT),   доля на уровне wᵢ = gᵢ e^(−εᵢ/kT) / Z,
+       ⟨E⟩ = Σ wᵢ εᵢ,   C = (⟨E²⟩ − ⟨E⟩²) / kT²,
+       S/k = ln Z + ⟨E⟩/kT,   F = −kT ln Z.
+   Дисперсия считается вторым проходом, Σ wᵢ (εᵢ − ⟨E⟩)², без вычитания
+   больших чисел. Энергии отсчитаны от нижнего уровня, и в сумме стоит
+   e^(−(εᵢ − ε₀)/kT), чтобы на холоде не было переполнения; ln Z
+   возвращается к исходному отсчёту. Сумма обрывается там, где
+   εᵢ/kT > 60 (вклад меньше e⁻⁶⁰ на состояние), но не раньше, чем
+   кончатся уровни, нарисованные слева. Всё в единицах k = 1.
+
+   НАБОРЫ.
+   Две ступени: 0 и Δ, по одному состоянию. Это задача о двух уровнях
+   (zadacha-rb-dva-urovnya): Δ = 10⁻²⁰ Дж при 300 К даёт Δ/kT = 2,42.
+   Лестница: εₙ = n kθ, n = 0, 1, 2, …, каждая по разу; колебание
+   молекулы, ступени через равные промежутки, как у девятой.
+   Ротатор: ε_J = J(J + 1) kθ, кратность 2J + 1; выключатель кратности
+   ставит gᵢ = 1, это ошибка «уровень входит один раз» (аудит, Б2),
+   и демка показывает, к чему она ведёт.
+   Водород: те же ступени ротатора с θ = 85,3 К. Нормальный водород есть
+   смесь параводорода (чётные J) и ортоводорода (нечётные J) в
+   отношении 1 : 3, и при охлаждении сорта друг в друга почти не
+   переходят (Деннисон, 1927). Поэтому у каждого сорта своя сумма, а
+   доли, ⟨E⟩, C, S и F смеси взвешены 1/4 и 3/4. Одной статистической
+   суммы у замороженной смеси нет, и на табло вместо Z стоит
+   температура. Энтропия смешения сортов и спинов ядер в S не входит:
+   от температуры она не зависит и теплоёмкости не меняет. Энергия
+   отсчитана от J = 0, поэтому у ортоводорода на холоде остаётся 2kθ.
+
+   КОНСТАНТА ВОДОРОДА. θ = 85,3 К та же, что в главе девятой недели
+   (vymorazhivanie-stepenej-svobody, сверка констант 26.10,
+   briefs/lekciya09_sverka_konstant_REPORT.md): Woolley, Scott,
+   Brickwedde, J. Res. NBS 41, 379 (1948), ур. 2.18. Сверено 13.11 по NIST
+   Chemistry WebBook, H₂, константы двухатомных молекул (Huber, Herzberg
+   1979): B₀ = 59,336 см⁻¹ (Foltz и др. 1966; у Brannon и др. 1968
+   59,334), θ = hcB₀/k = 85,37 К при hc/k = 1,438777 см·К. С 85,37 К
+   числа ниже сдвигаются меньше чем на 0,001 k (python печатает сдвиг).
+   Справочные точки вращательной теплоёмкости нормального водорода
+   (кружки на графике) взяты из той же главы девятой: 0,004; 0,21; 0,55;
+   0,78; 0,97 k при 50, 100, 150, 200 и 300 К (NIST WebBook Fluid,
+   Leachman и др. 2009; Woolley и др. 1948, табл. 4).
+
+   ЧИСЛА (этот код через hcheck и независимый счёт python
+   briefs/lekciya12_skripty/proizvodstvo/urovni-energii.py, где C
+   берётся производной d⟨E⟩/dT, а не дисперсией: значения совпали до
+   10⁻¹², положения горбов до 2·10⁻⁷):
+   две ступени: наибольшая C = 0,4392 k при Δ/kT = 2,3994; при 2,42
+   наверху 8,17 %, C = 0,4392 k, S = 0,283 k, F = −0,0352 Δ; при
+   kT = 20 Δ наверху 48,75 %, S = 0,6928 k против k ln 2 = 0,6931 k;
+   лестница: C/k = 0,9992; 0,9207; 0,4536 при θ/T = 0,1; 1; 3,2;
+   ротатор с кратностью: горб 1,0976 k при T/θ = 0,807, 1,0023 k при 3,5
+   и 1,0001 k при 20; без кратности на месте горба 0,4670 k (глава:
+   «0,467 k при 69 К»), кривая растёт монотонно и выше
+   0,5000 k не поднимается;
+   нормальный водород: 0,042, 0,491 и 0,891 k при 68,9, 141 и 247 К,
+   без кратности 0,009, 0,148 и 0,387 k. */
+
+var TH_H2 = 85.3;                 /* К, характеристическая температура вращения H₂ */
+var SPRAV_H2 = [[50, 0.004], [100, 0.21], [150, 0.55], [200, 0.78], [300, 0.97]];
+var OBREZ = 60;                   /* сумма обрывается при ε/kT > OBREZ */
+
+var NABORY = {
+  dva:      { imya: 'Две ступени', ed: 'Δ',  tMin: 0.05, tMax: 20, t0: 1 / 2.42, pokaz: 2, kr: false },
+  lestnica: { imya: 'Лестница',    ed: 'kθ', tMin: 0.05, tMax: 20, t0: 1,        pokaz: 8, kr: false },
+  rotator:  { imya: 'Ротатор',     ed: 'kθ', tMin: 0.05, tMax: 20, t0: 0.81,     pokaz: 7, kr: true },
+  vodorod:  { imya: 'Водород',     ed: 'К',  tMin: 10 / TH_H2, tMax: 1000 / TH_H2, t0: 141 / TH_H2, pokaz: 7, kr: true }
+};
+var PORYADOK = ['dva', 'lestnica', 'rotator', 'vodorod'];
+/* ?kt=1: две ступени открываются при kT = Δ, а не на задаче о двух
+   уровнях, где табло при открытии показало бы её ответ (наверху 8,2 %,
+   C = 0,4392 k). Так демку зовёт кадр 41 колоды недели 12 (генеральная
+   сессия 13.11); без параметра старт прежний, t0 набора. С параметром
+   задачи на экране нет совсем: пунктир «Δ/kT = 2,42» на графике и строка
+   показаний «Задача о двух уровнях» не рисуются, а кнопка «Две ступени»
+   возвращает к kT0 из параметра, а не к t0 задачи (итоговый аудит 13.11). */
+var KT_ZADAN = new URLSearchParams(location.search).has('kt');
+var KT0 = (function () {
+  var v = parseFloat(new URLSearchParams(location.search).get('kt'));
+  return v > 0 ? Math.min(Math.max(v, NABORY.dva.tMin), NABORY.dva.tMax) : NABORY.dva.t0;
+})();
+
+/* Уровни набора при температуре t (в единицах ступени): энергия e,
+   кратность g, номер n, сорт водорода sort (0 пара, 1 орто). */
+function urovni(nabor, kratnost, t) {
+  var lv = [], n;
+  if (nabor === 'dva') return [{ e: 0, g: 1, n: 0 }, { e: 1, g: 1, n: 1 }];
+  if (nabor === 'lestnica') {
+    for (n = 0; n < NABORY.lestnica.pokaz || n / t < OBREZ; n++) lv.push({ e: n, g: 1, n: n });
+    return lv;
+  }
+  for (n = 0; n < NABORY[nabor].pokaz || n * (n + 1) / t < OBREZ; n++)
+    lv.push({ e: n * (n + 1), g: kratnost ? 2 * n + 1 : 1, n: n, sort: n % 2 });
+  return lv;
+}
+
+/* Сумма по микросостояниям для одного набора уровней. */
+function stat(lv, t) {
+  var e0 = Infinity, i;
+  for (i = 0; i < lv.length; i++) if (lv[i].e < e0) e0 = lv[i].e;
+  var b = [], Zs = 0;
+  for (i = 0; i < lv.length; i++) { b.push(lv[i].g * Math.exp(-(lv[i].e - e0) / t)); Zs += b[i]; }
+  var E = 0;
+  for (i = 0; i < lv.length; i++) E += b[i] * lv[i].e;
+  E /= Zs;
+  var D = 0;
+  for (i = 0; i < lv.length; i++) D += b[i] * (lv[i].e - E) * (lv[i].e - E);
+  D /= Zs;
+  var lnZ = Math.log(Zs) - e0 / t;
+  return { w: b.map(function (x) { return x / Zs; }), lnZ: lnZ, Z: Math.exp(lnZ),
+           E: E, C: D / (t * t), S: lnZ + E / t, F: -t * lnZ };
+}
+
+/* Состояние набора: показания табло и доли на нарисованных уровнях. */
+function sostoyanie(nabor, kratnost, t) {
+  var o = NABORY[nabor], lv = urovni(nabor, kratnost, t), s, w;
+  if (nabor === 'vodorod') {
+    var para = lv.filter(function (u) { return u.sort === 0; }),
+        orto = lv.filter(function (u) { return u.sort === 1; });
+    var sp = stat(para, t), so = stat(orto, t);
+    w = lv.map(function (u) { return u.sort === 0 ? 0.25 * sp.w[u.n / 2] : 0.75 * so.w[(u.n - 1) / 2]; });
+    s = { Z: null, lnZ: null,
+          E: 0.25 * sp.E + 0.75 * so.E, C: 0.25 * sp.C + 0.75 * so.C,
+          S: 0.25 * sp.S + 0.75 * so.S, F: 0.25 * sp.F + 0.75 * so.F };
+  } else {
+    s = stat(lv, t); w = s.w;
+  }
+  var pokaz = [], sum = 0;
+  for (var i = 0; i < o.pokaz; i++) {
+    pokaz.push({ n: lv[i].n, e: lv[i].e, g: lv[i].g, sort: lv[i].sort, w: w[i] });
+    sum += w[i];
+  }
+  var r = {
+    nabor: nabor, kratnost: !!kratnost, t: t, x: 1 / t,
+    Z: s.Z, lnZ: s.lnZ, E: s.E, C: s.C, S: s.S, F: s.F,
+    urovni: pokaz, ostatok: Math.max(0, 1 - sum), chisloUrovnej: lv.length
+  };
+  if (nabor === 'dva') r.pVerh = w[1];
+  if (nabor === 'vodorod') { r.T_K = t * TH_H2; r.E_K = s.E * TH_H2; r.F_K = s.F * TH_H2; }
+  return r;
+}
+
+function Cot(nabor, kratnost, t) { return sostoyanie(nabor, kratnost, t).C; }
+
+/* Наибольшее значение f на [a, b] золотым сечением по ln t. */
+function maksimum(f, a, b) {
+  var g = (Math.sqrt(5) - 1) / 2, lo = Math.log(a), hi = Math.log(b);
+  var x1 = hi - g * (hi - lo), x2 = lo + g * (hi - lo), f1 = f(Math.exp(x1)), f2 = f(Math.exp(x2));
+  for (var i = 0; i < 120; i++) {
+    if (f1 < f2) { lo = x1; x1 = x2; f1 = f2; x2 = lo + g * (hi - lo); f2 = f(Math.exp(x2)); }
+    else { hi = x2; x2 = x1; f2 = f1; x1 = hi - g * (hi - lo); f1 = f(Math.exp(x1)); }
+  }
+  var t = Math.exp((lo + hi) / 2);
+  return { t: t, C: f(t) };
+}
+
+/* Сетка по ln t: кривая C(T) и проверка монотонности. */
+function setka(nabor, kratnost, n) {
+  var o = NABORY[nabor], a = Math.log(o.tMin), b = Math.log(o.tMax), out = [];
+  for (var i = 0; i <= n; i++) { var t = Math.exp(a + (b - a) * i / n); out.push([t, Cot(nabor, kratnost, t)]); }
+  return out;
+}
+
+/* Горбы считаются один раз: строка показаний их называет. */
+var GORB = {
+  dva: maksimum(function (t) { return Cot('dva', false, t); }, 0.2, 1),
+  rotator: maksimum(function (t) { return Cot('rotator', true, t); }, 0.3, 2)
+};
+/* Ротатор открывается на своём горбе, T/θ = 0,807 (у водорода 68,9 К):
+   там выключатель кратности меняет больше всего, 1,0976 k против 0,4670 k. */
+NABORY.rotator.t0 = GORB.rotator.t;
+var KRIVYE = {};
+function krivaya(nabor, kratnost) {
+  var k = nabor + (kratnost ? '+' : '-');
+  if (!KRIVYE[k]) KRIVYE[k] = setka(nabor, kratnost, 300);
+  return KRIVYE[k];
+}
+var MAKS_BEZ = (function () {
+  var c = krivaya('rotator', false), m = 0, mono = true;
+  for (var i = 0; i < c.length; i++) { if (i && c[i][1] < c[i - 1][1] - 1e-12) mono = false; if (c[i][1] > m) m = c[i][1]; }
+  return { C: m, monotonna: mono };
+})();
+
+/* Свод чисел для сверки с главой, описью и python. */
+function svod() {
+  var d242 = sostoyanie('dva', false, 1 / 2.42), d20 = sostoyanie('dva', false, 20);
+  var h2 = [68.9, 141, 247].map(function (T) {
+    return { T: T, s: Cot('vodorod', true, T / TH_H2), bez: Cot('vodorod', false, T / TH_H2) };
+  });
+  return {
+    dva_max: { C: GORB.dva.C, x: 1 / GORB.dva.t },
+    dva_242: { pVerh: d242.pVerh, C: d242.C, S: d242.S, F: d242.F, E: d242.E },
+    dva_20: { pVerh: d20.pVerh, S: d20.S, ln2: Math.log(2) },
+    lestnica: [0.1, 1, 3.2].map(function (x) { return { x: x, C: Cot('lestnica', false, 1 / x) }; }),
+    rot_s: { C: GORB.rotator.C, t: GORB.rotator.t, C35: Cot('rotator', true, 3.5), C20: Cot('rotator', true, 20) },
+    rot_bez: { Cmax: MAKS_BEZ.C, monotonna: MAKS_BEZ.monotonna, C20: Cot('rotator', false, 20) },
+    h2: h2
+  };
+}
+
+/* Русская запятая и настоящий минус. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+/* Число на табло: знаков после запятой по величине. */
+function tablo(v) {
+  var a = Math.abs(v);
+  return num(v, a >= 100 ? 0 : a >= 10 ? 1 : a >= 1 ? 2 : 3);
+}
+function procent(w) { return w >= 0.1 ? num(100 * w, 0) + ' %' : num(100 * w, 1) + ' %'; }
+/* ── конец чистой физики ── */
+
+var W = 1000, HGT = 460;
+var CV_LV = '94,200,255';          /* столбики и кривая */
+var CV_PARA = '94,200,255', CV_ORTO = '255,122,138';
+var CV_SPRAV = '232,150,30';       /* справочные точки водорода */
+
+function Urovni() {
+  var B = useRef(null);
+  if (!B.current) B.current = { nabor: 'dva', kratnost: true, t: KT0 };
+  var b = B.current;
+  var _t = useState(0), tik = _t[1];
+  function obnovit() { tik(function (n) { return n + 1; }); }
+
+  function seichas() { return sostoyanie(b.nabor, NABORY[b.nabor].kr && b.kratnost, b.t); }
+  var S = seichas();
+  window.__demoState = S;
+
+  /* Модель стоит на месте: шаг ничего не двигает, кадр рисует состояние ручек. */
+  function step() {}
+
+  /* ── слева: доли на уровнях ── */
+  var LX0 = 78, LX1 = 450, LY0 = 132, LY1 = 382;
+  function risUrovni(ctx, S, tone) {
+    var mut = 'rgba(' + tone.muted + ',.95)', ink = tone.ink, o = NABORY[S.nabor];
+    var y = function (w) { return LY1 - w * (LY1 - LY0); };
+    ctx.lineWidth = 1;
+    [0, 0.5, 1].forEach(function (w) {
+      ctx.strokeStyle = 'rgba(' + ink + ',' + (w ? .14 : .55) + ')';
+      ctx.beginPath(); ctx.moveTo(LX0, y(w)); ctx.lineTo(LX1, y(w)); ctx.stroke();
+      C.label(ctx, LX0 - 8, y(w) + 6, w ? num(100 * w, 0) + ' %' : '0', 17, mut, 'right');
+    });
+    C.label(ctx, LX0, LY0 - 20, 'доля молекул на уровне', 17, mut, 'left');
+    var n = S.urovni.length, slot = (LX1 - LX0) / n, bw = Math.min(64, slot * 0.62);
+    S.urovni.forEach(function (u, i) {
+      var cx = LX0 + slot * (i + 0.5), cv = S.nabor === 'vodorod' ? (u.sort ? CV_ORTO : CV_PARA) : CV_LV;
+      var top = y(u.w);
+      ctx.fillStyle = 'rgba(' + cv + ',.85)';
+      ctx.fillRect(cx - bw / 2, top, bw, LY1 - top);
+      if (u.w >= 0.0005) C.label(ctx, cx, top - 8, procent(u.w), 17, 'rgb(' + ink + ')');
+      var podp = S.nabor === 'dva' ? (u.n ? 'Δ' : '0') : S.nabor === 'lestnica' ? (u.n > 1 ? u.n + 'kθ' : u.n ? 'kθ' : '0') : 'J = ' + u.n;
+      if (S.nabor === 'rotator' || S.nabor === 'vodorod') podp = n > 6 && i ? String(u.n) : podp;
+      C.label(ctx, cx, LY1 + 24, podp, 17, mut);
+      if (o.kr) C.label(ctx, cx, LY1 + 46, '×' + u.g, 17, S.kratnost ? 'rgb(' + tone.accent + ')' : mut);
+    });
+    var niz = S.nabor === 'dva' ? 'энергия уровня ε'
+      : S.nabor === 'lestnica' ? 'ε = n·kθ, каждый уровень один раз'
+      : S.nabor === 'rotator' ? (S.kratnost ? 'ε = J(J+1)·kθ, уровень J входит 2J+1 раз' : 'ε = J(J+1)·kθ, каждый уровень один раз')
+      : (S.kratnost ? 'J чётные: пара, нечётные: орто; ×(2J+1)' : 'J чётные: пара, нечётные: орто; ×1');
+    C.label(ctx, LX0, HGT - 6, niz, 17, mut, 'left');
+    if (S.ostatok >= 0.0005) C.label(ctx, LX1, LY0 - 20, 'выше: ' + procent(S.ostatok), 17, mut, 'right');
+    if (S.nabor === 'vodorod') {
+      ctx.fillStyle = 'rgb(' + CV_PARA + ')'; ctx.fillRect(LX1 - 196, LY0 + 2, 14, 14);
+      C.label(ctx, LX1 - 176, LY0 + 15, 'пара', 17, mut, 'left');
+      ctx.fillStyle = 'rgb(' + CV_ORTO + ')'; ctx.fillRect(LX1 - 100, LY0 + 2, 14, 14);
+      C.label(ctx, LX1 - 80, LY0 + 15, 'орто', 17, mut, 'left');
+    }
+  }
+
+  /* ── справа: теплоёмкость от температуры, шкала логарифмическая ── */
+  var RX0 = 580, RX1 = 978, RY0 = 132, RY1 = 382, CMAX = 1.2;
+  function risC(ctx, S, tone) {
+    var mut = 'rgba(' + tone.muted + ',.95)', ink = tone.ink, o = NABORY[S.nabor], vod = S.nabor === 'vodorod';
+    var la = Math.log(o.tMin), lb = Math.log(o.tMax);
+    var X = function (t) { return RX0 + (Math.log(t) - la) / (lb - la) * (RX1 - RX0); };
+    var Y = function (c) { return RY1 - c / CMAX * (RY1 - RY0); };
+    ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(RX0, RY0 - 8); ctx.lineTo(RX0, RY1); ctx.lineTo(RX1, RY1); ctx.stroke();
+    [0, 0.5, 1].forEach(function (c) {
+      ctx.beginPath(); ctx.moveTo(RX0 - 6, Y(c)); ctx.lineTo(RX0, Y(c)); ctx.stroke();
+      C.label(ctx, RX0 - 10, Y(c) + 6, c === 0.5 ? '0,5' : String(c), 17, mut, 'right');
+    });
+    ctx.setLineDash([3, 5]); ctx.strokeStyle = 'rgba(' + tone.muted + ',.55)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(RX0, Y(1)); ctx.lineTo(RX1, Y(1)); ctx.stroke(); ctx.setLineDash([]);
+    var deleniya = vod ? [10, 30, 100, 300, 1000] : [0.1, 1, 10];
+    deleniya.forEach(function (d) {
+      var t = vod ? d / TH_H2 : d, xx = X(t);
+      ctx.beginPath(); ctx.moveTo(xx, RY1); ctx.lineTo(xx, RY1 + 6); ctx.stroke();
+      C.label(ctx, xx, RY1 + 26, num(d, d < 1 ? 1 : 0), 17, mut);
+    });
+    C.label(ctx, RX0 + 8, RY0 - 4, 'C / k', 17, mut, 'left');
+    C.label(ctx, RX1, RY1 + 50, vod ? 'T, К' : S.nabor === 'dva' ? 'kT / Δ' : 'T / θ', 17, mut, 'right');
+    /* та же кривая с выключателем в другом положении: пунктиром */
+    if (o.kr) {
+      ctx.setLineDash([6, 6]); ctx.strokeStyle = 'rgba(' + tone.muted + ',.75)'; ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      krivaya(S.nabor, !S.kratnost).forEach(function (p, i) { if (i) ctx.lineTo(X(p[0]), Y(p[1])); else ctx.moveTo(X(p[0]), Y(p[1])); });
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (S.nabor === 'dva' && !KT_ZADAN) {
+      var xz = X(1 / 2.42);
+      ctx.setLineDash([3, 5]); ctx.strokeStyle = 'rgba(' + tone.accent + ',.7)'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(xz, RY1); ctx.lineTo(xz, RY0 + 30); ctx.stroke(); ctx.setLineDash([]);
+      C.label(ctx, xz + 6, RY0 + 22, 'Δ/kT = 2,42', 17, 'rgb(' + tone.accent + ')', 'left');
+    }
+    ctx.strokeStyle = 'rgb(' + CV_LV + ')'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    krivaya(S.nabor, o.kr && S.kratnost).forEach(function (p, i) { if (i) ctx.lineTo(X(p[0]), Y(p[1])); else ctx.moveTo(X(p[0]), Y(p[1])); });
+    ctx.stroke();
+    if (vod) {
+      ctx.strokeStyle = 'rgb(' + CV_SPRAV + ')'; ctx.lineWidth = 2;
+      SPRAV_H2.forEach(function (p) { ctx.beginPath(); ctx.arc(X(p[0] / TH_H2), Y(p[1]), 6, 0, 6.284); ctx.stroke(); });
+      ctx.beginPath(); ctx.arc(RX0 + 18, RY0 + 16, 6, 0, 6.284); ctx.stroke();
+      C.label(ctx, RX0 + 32, RY0 + 22, 'справочник', 17, mut, 'left');
+    }
+    var px = X(S.t), py = Y(S.C);
+    C.glow(ctx, px, py, 22, tone.accent, .45);
+    ctx.fillStyle = 'rgb(' + tone.accent + ')';
+    ctx.beginPath(); ctx.arc(px, py, 7, 0, 6.284); ctx.fill();
+  }
+
+  /* Кадр считает состояние заново по ручкам: __demoTick в скрытой вкладке
+     рисует раньше, чем React перерисует разметку. */
+  function draw(ctx) {
+    var tone = C.tones(ctx), S = seichas(), ed = NABORY[S.nabor].ed, vod = S.nabor === 'vodorod';
+    window.__demoState = S;
+    risUrovni(ctx, S, tone);
+    risC(ctx, S, tone);
+    var ink = 'rgb(' + tone.ink + ')';
+    C.readout(ctx, 190, 26, vod ? 'T, К' : 'Z', vod ? num(S.T_K, 0) : tablo(S.Z), ink);
+    C.readout(ctx, 390, 26, vod ? '⟨E⟩ / k, К' : '⟨E⟩, ' + ed, vod ? num(S.E_K, 0) : tablo(S.E), ink);
+    C.readout(ctx, 590, 26, 'C / k', num(S.C, 4), 'rgb(' + tone.accent + ')');
+    C.readout(ctx, 790, 26, 'S / k', num(S.S, 3), ink);
+    C.readout(ctx, 990, 26, vod ? 'F / k, К' : 'F, ' + ed, vod ? num(S.F_K, 0) : tablo(S.F), ink);
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+  function vybrat(n) { b.nabor = n; b.t = n === 'dva' && KT_ZADAN ? KT0 : NABORY[n].t0; obnovit(); }
+  function postavit(t) { var o = NABORY[b.nabor]; b.t = C.clamp(t, o.tMin, o.tMax); obnovit(); }
+  function pereklyuchit() { b.kratnost = !b.kratnost; obnovit(); }
+
+  /* Для автопроверки: __demoSet({ nabor, t, T_K, kratnost }) ставит ручки
+     и возвращает показания; __demoModel даёт счёт для сверки. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    if (o.nabor) { b.nabor = o.nabor; b.t = NABORY[o.nabor].t0; }
+    if (o.kratnost != null) b.kratnost = !!o.kratnost;
+    if (o.t != null) b.t = o.t;
+    if (o.T_K != null) b.t = o.T_K / TH_H2;
+    obnovit();
+    return seichas();
+  };
+  window.__demoModel = { urovni: urovni, stat: stat, sostoyanie: sostoyanie, svod: svod,
+                         gorb: GORB, maksBez: MAKS_BEZ, nabory: NABORY, TH_H2: TH_H2, sprav: SPRAV_H2 };
+
+  /* ── строка показаний ── */
+  function slova() {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var Cs = num(S.C, 4) + ' k';
+    if (S.nabor === 'dva') {
+      var gorb = 'Больше ' + num(GORB.dva.C, 4) + ' k теплоёмкость двух уровней не бывает, это её значение при Δ/kT = ' + num(1 / GORB.dva.t, 2) + '.';
+      if (!KT_ZADAN && Math.abs(S.x - 2.42) < 0.005)
+        return 'Задача о двух уровнях: при Δ/kT = 2,42 наверху ' + A(procent(S.pVerh)) + ', теплоёмкость ' + A(Cs) + '. ' + gorb;
+      if (S.x < 0.3)
+        return 'Наверху ' + procent(S.pVerh) + ', населённости почти равны. Энтропия ' + A(num(S.S, 4) + ' k') +
+          ' подходит к k ln 2 = 0,6931 k: два равновероятных состояния, один бит. Средняя энергия подходит к Δ/2 и дальше не растёт, поэтому теплоёмкость падает.';
+      if (S.x > 6)
+        return 'Наверху ' + procent(S.pVerh) + ': почти все молекулы внизу, и нагрев их почти не поднимает. Теплоёмкость ' + A(Cs) + '.';
+      return 'Наверху ' + A(procent(S.pVerh)) + ', теплоёмкость ' + A(Cs) + '. ' + gorb;
+    }
+    if (S.nabor === 'lestnica') {
+      if (S.t > 3)
+        return 'Теплоёмкость ' + A(Cs) + ': при высокой температуре колебание получает по kT/2 на каждое из двух квадратичных слагаемых энергии, вместе k.';
+      if (S.t < 0.3)
+        return 'Почти все молекулы на нижней ступени, теплоёмкость ' + A(Cs) + ': колебание выморожено.';
+      return 'Ступени идут через kθ, каждая по одному разу. Теплоёмкость ' + A(Cs) + ' растёт с температурой к k без горба.';
+    }
+    if (S.nabor === 'rotator') {
+      var sKr = Cot('rotator', true, S.t);
+      if (S.kratnost)
+        return 'Уровень J входит в сумму 2J + 1 раз. Теплоёмкость ' + A(Cs) + '; горб ' + num(GORB.rotator.C, 4) +
+          ' k при T/θ = ' + num(GORB.rotator.t, 3) + ', а при высокой температуре k: две оси вращения по kT/2.';
+      var bez = 'Каждый уровень сосчитан один раз, и теплоёмкость выше ' + num(MAKS_BEZ.C, 2) +
+        ' k не поднимается: статистическая сумма растёт как √T, а не как T.';
+      if (sKr - S.C < 0.005)
+        return bez + ' Сейчас почти все молекулы при J = 0, и разницы с кратностью ещё не видно.';
+      return bez + ' Сейчас ' + A(Cs) + ' вместо ' + num(sKr, 4) + ' k с кратностью.';
+    }
+    var hKr = Cot('vodorod', true, S.t);
+    if (S.kratnost)
+      return 'Пара и орто 1 : 3, сорта друг в друга почти не переходят. При ' + num(S.T_K, 0) + ' К теплоёмкость вращения ' + A(Cs) +
+        '; по справочнику водород набирает половину k к 141 К и 0,9 k к 247 К.';
+    if (hKr - S.C < 0.005)
+      return 'Без кратности при ' + num(S.T_K, 0) + ' К разницы ещё не видно: почти все молекулы на нижнем уровне своего сорта.';
+    return 'Без кратности при ' + num(S.T_K, 0) + ' К вышло бы ' + A(Cs) + ' вместо ' + num(hKr, 4) +
+      ' k, и кривая проходит мимо справочных точек.';
+  }
+
+  var o = NABORY[b.nabor];
+  var disp = b.nabor === 'vodorod' ? 'T = ' + num(b.t * TH_H2, 0) + ' К'
+    : b.nabor === 'dva' ? 'kT = ' + num(b.t, 3) + ' Δ' : 'T = ' + num(b.t, 3) + ' θ';
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group}>
+          ${PORYADOK.map(function (n) {
+            return html`<${C.Btn} key=${n} active=${b.nabor === n} onClick=${function () { vybrat(n); }}>${NABORY[n].imya}<//>`;
+          })}
+        <//>
+        <${C.Slider} label="Температура:" log=${true} min=${o.tMin} max=${o.tMax} step=${0.001} value=${b.t}
+                     onChange=${postavit} display=${disp} />
+        <${C.Group}>
+          <${C.Btn} active=${o.kr && b.kratnost} disabled=${!o.kr} onClick=${pereklyuchit}>Кратность 2J+1<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Urovni);
+</script>
+</body>
+</html>
