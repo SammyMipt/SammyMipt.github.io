@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Труба Вентури: где быстрее, там давление ниже</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-08/">&larr; Неделя 08</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=venturi"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Блоки главы `zakon-bernulli` (Вентури с верным знаком, кубик жидкости),
+   `uravnenie-nerazryvnosti`, `bernulli-ili-puazejl` (бриф
+   briefs/proizvodstvo08.md, «Демки», исполнитель 2; карточка 3 описи
+   briefs/lekciya08_demki_minuty.md §1.4; рамка §6, демка 4; «Принято»,
+   п. 9 и 10; решения автора, добавки: «Вентури стоит описать»). Закон и его
+   нарушение на одной трубе: без трения давление в горле падает и за
+   горлом возвращается; с трением у вязкой жидкости падает вдоль всей
+   трубы.
+
+   ТРУБА. Горизонтальная, 40 см: широкая часть диаметром 2 см до 10 см,
+   конфузор до 14 см, горло 1 см до 18 см, плавный диффузор до 30 см
+   (полный угол раскрытия около 5°), дальше снова 2 см. Переходы
+   косинусом, чтобы стенка была гладкой. На экране поперёк в три раза
+   крупнее, чем вдоль.
+
+   ЧТО СЧИТАЕТСЯ. Скорость из неразрывности, v = Q/S(x), средняя по
+   сечению. Давление из второго закона для элемента на оси, интегралом
+   по длине (трапеции, 4001 узел через 0,1 мм):
+       ρ v dv/dx = −dP/dx − f,
+   f — сила трения на единицу объёма. Без трения это Бернулли в
+   дифференциальной форме, и интеграл даёт P₁ − P = ρ(v² − v₁²)/2; знак
+   демка не утверждает, а получает. С трением f берётся по Пуазёйлю для
+   развитого профиля, 8ηQ/(πR⁴) = 128ηQ/(πd⁴), и только когда течение
+   ламинарно во всей трубе: Re в горле, где оно наибольшее, меньше двух
+   тысяч. У глицерина так и есть (Re около 10, входной участок
+   0,06·Re·d около сантиметра, профиль успевает стать параболой). У воды
+   при расходах главы Re больше десяти тысяч, закон Пуазёйля к трубе
+   неприменим, и кривая трения не рисуется; число на табло говорит,
+   почему это не страшно. Поправок на форму профиля (у параболы поток
+   кинетической энергии вдвое больше, чем по средней скорости) демка не
+   вносит: у глицерина разгонная часть перепада против трения около
+   процента, у воды трения на табло нет.
+
+   ВТОРАЯ ДОРОГА: КУБИК ЖИДКОСТИ. Кубик на оси разгоняется только силой,
+   которую считает поле давления: −(1/ρ)dP/dx минус трение на единицу
+   массы. Скоростной Верле по времени, шаг четверть узла на скорости
+   горла, ускорение линейной интерполяцией между узлами. Скорость кубика
+   обязана совпасть с Q/S в той точке, где он сейчас; наибольшее
+   расхождение за пролёт печатается. В диффузоре сила давления смотрит
+   назад, кубик идёт вперёд и тормозится: жидкость движется к большему
+   давлению.
+
+   КАКАЯ МОДЕЛЬ. По оценке автора (рамка, шаг «Бернулли или Пуазёйль»):
+   работа трения против кинетической энергии порядка 16l/(Re·d). У трубы
+   с меняющимся сечением Re·d = 4ρQ/(πη) одно и то же во всех сечениях,
+   поэтому число одно на всю трубу. Меньше 0,1 — годится Бернулли, больше
+   10 — трение главное, работает Пуазёйль, между — нужны оба. Модель на
+   табло выбирает это число, а не переключатель.
+
+   ЧИСЛА (python, scratchpad w08/tmp/demki/venturi.py описи и пересчёт
+   15.10). Вода, 10 л/мин (расход задачи недели): 0,531 и 2,122 м/с,
+   перепад до горла 2111 Па, 21,5 см водяного столба; Re 10 610 и 21 221;
+   16l/(Re·d) = 0,030. Глицерин (η = 1,41 Па·с при 20 °C, ρ = 1260 кг/м³,
+   как в zakon-bernulli, в 1410 раз вязче воды) при том же расходе: Re 9,5
+   и 19,0, бернуллиев перепад тот же по столбу, 21,5 см; трение в широкой
+   части 59,8 кПа/м, напор горла ρ(v₂² − v₁²)/2 = 2660 Па съеден за
+   4,4 см; на 40 см трение 103,6 кПа, в 38,9 раза больше напора горла;
+   16l/(Re·d) = 33,7; до горла с трением 41,1 кПа, 3,33 м глицеринового
+   столба. В диффузоре на 24 см скорость 0,943 м/с вперёд, давление растёт
+   на 15,5 кПа/м, сила на килограмм 15,5 Н назад. Проверено 15.10 через
+   hcheck (порт 49933): перепад до горла без трения против
+   ρ(v₂² − v₁²)/2 до 1,1·10⁻⁵; потеря против независимого интеграла
+   Симпсоном до 10⁻¹³; кубик против Q/S до 8·10⁻⁵, и это ошибка
+   интерполяции поля, второго порядка по шагу (2,0·10⁻³ на сетке 0,5 мм);
+   пролёт 40 см за 0,575 с. Отрицательный контроль: знак второго закона
+   наоборот даёт перепад −2111 Па, и кубик встаёт в конфузоре; 120
+   вместо 128 в трении даёт потерю на 6,25 % меньше независимой.
+   Чего демка не считает: настоящий диффузор теряет больше, турбулентный
+   поток отдаёт часть напора вихрям, а у резкого расширения поток
+   отрывается от стенок; давление после горла рисуется без этих потерь.
+   Справочный коэффициент расхода классической трубы Вентури 0,98–0,99. */
+
+/* ── чистая физика ── */
+var G = 9.81;
+var L = 0.40, D1 = 0.02, D2 = 0.01;
+var XK0 = 0.10, XK1 = 0.14, XD0 = 0.18, XD1 = 0.30;      /* конфузор и диффузор */
+var X_GORLO = 0.16;                                       /* середина горла */
+var NX = 4001, DX = L / (NX - 1);          /* узел через 0,1 мм */
+var RE_POROG = 2000;
+var FLUIDS = [
+  { id: 'water', label: 'Вода',     eta: 1.0e-3, rho: 1000, stolb: 'водяного' },
+  { id: 'glyc',  label: 'Глицерин', eta: 1.41,   rho: 1260, stolb: 'глицеринового' }
+];
+
+/* диаметр и его производная по x */
+function diam(x) {
+  function perehod(xa, xb, da, db) {
+    var s = (x - xa) / (xb - xa);
+    return { d: da + (db - da) * 0.5 * (1 - Math.cos(Math.PI * s)),
+             dd: (db - da) * 0.5 * Math.PI * Math.sin(Math.PI * s) / (xb - xa) };
+  }
+  if (x < XK0) return { d: D1, dd: 0 };
+  if (x < XK1) return perehod(XK0, XK1, D1, D2);
+  if (x < XD0) return { d: D2, dd: 0 };
+  if (x < XD1) return perehod(XD0, XD1, D2, D1);
+  return { d: D1, dd: 0 };
+}
+
+function raschet(Qlpm, fl, trenie) {
+  var Q = Qlpm / 6e4, rho = fl.rho, eta = fl.eta;
+  var x = new Float64Array(NX), d = new Float64Array(NX), v = new Float64Array(NX);
+  var dPdx = new Float64Array(NX), dPdx0 = new Float64Array(NX), f = new Float64Array(NX);
+  var P = new Float64Array(NX), P0 = new Float64Array(NX);
+  var Re2 = 4 * rho * Q / (Math.PI * eta * D2);
+  var lam = Re2 < RE_POROG, fr = !!trenie && lam;
+  for (var i = 0; i < NX; i++) {
+    x[i] = i * DX;
+    var g = diam(x[i]);
+    d[i] = g.d;
+    v[i] = 4 * Q / (Math.PI * g.d * g.d);                          /* неразрывность */
+    var dvdx = -8 * Q / (Math.PI * g.d * g.d * g.d) * g.dd;
+    f[i] = fr ? 128 * eta * Q / (Math.PI * Math.pow(g.d, 4)) : 0;  /* Пуазёйль, Па/м */
+    dPdx0[i] = -rho * v[i] * dvdx;                                 /* второй закон без трения */
+    dPdx[i] = dPdx0[i] - f[i];
+  }
+  for (i = 1; i < NX; i++) {
+    P[i] = P[i - 1] + 0.5 * (dPdx[i] + dPdx[i - 1]) * DX;
+    P0[i] = P0[i - 1] + 0.5 * (dPdx0[i] + dPdx0[i - 1]) * DX;
+  }
+  var ig = Math.round(X_GORLO / DX), idf = Math.round(0.24 / DX);
+  var v1 = v[0], v2 = v[ig];
+  var head = rho * (v2 * v2 - v1 * v1) / 2;
+  var loss = fr ? P0[NX - 1] - P[NX - 1] : null;
+  var ReD = 4 * rho * Q / (Math.PI * eta);                          /* Re·d, одно на всю трубу */
+  var ocenka = 16 * L / ReD;
+  return {
+    Q: Q, Qlpm: Qlpm, fl: fl, trenie: !!trenie, fr: fr, lam: lam,
+    x: x, d: d, v: v, f: f, dPdx: dPdx, P: P, P0: P0,
+    v1: v1, v2: v2, dP: P[0] - P[ig], dP0: P0[0] - P0[ig], stolb: (P[0] - P[ig]) / (rho * G),
+    Re1: rho * v1 * D1 / eta, Re2: Re2, head: head, loss: loss, lossRatio: fr ? loss / head : null,
+    ocenka: ocenka, model: ocenka < 0.1 ? 'Бернулли' : ocenka > 10 ? 'Пуазёйль' : 'оба',
+    dPdxDiff: dPdx[idf], vDiff: v[idf], aDiff: -dPdx[idf] / rho, Pout: P[NX - 1],
+    monoton: (function () { for (var j = 0; j < NX; j++) if (dPdx[j] > 0) return false; return true; })()
+  };
+}
+/* ускорение элемента на оси: сила давления и трение на единицу массы */
+function uskorenie(R, xx) {
+  var q = C.clamp(xx / DX, 0, NX - 1.000001), i = Math.floor(q), t = q - i;
+  var dp = R.dPdx[i] * (1 - t) + R.dPdx[i + 1] * t, ff = R.f[i] * (1 - t) + R.f[i + 1] * t;
+  return { aP: -dp / R.fl.rho, aF: -ff / R.fl.rho };
+}
+/* шаг кубика: скоростной Верле, сила из поля давления и трения */
+function listikShag(R, lf, h) {
+  var a1 = uskorenie(R, lf.x), A1 = a1.aP + a1.aF;
+  lf.x += lf.v * h + 0.5 * A1 * h * h;
+  var a2 = uskorenie(R, lf.x), A2 = a2.aP + a2.aF;
+  lf.v += 0.5 * (A1 + A2) * h;
+  lf.t += h;
+  if (lf.x < L) {
+    var g = diam(lf.x), vs = 4 * R.Q / (Math.PI * g.d * g.d);
+    lf.err = Math.max(lf.err, Math.abs(lf.v - vs) / vs);
+  }
+}
+/* ── конец чистой физики ── */
+
+var SUP = { '-': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+            '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
+function sup(n) { return String(n).split('').map(function (c) { return SUP[c] || c; }).join(''); }
+function spaced(s) { return s.replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+function num(x, d) {
+  var s = x.toFixed(d), p = s.split('.');
+  if (p[0].replace('-', '').length > 4) p[0] = spaced(p[0]);
+  return p.join(',');
+}
+function sig(x, n) {
+  n = n || 3;
+  if (x === 0) return '0';
+  var a = Math.abs(x), e = Math.floor(Math.log10(a));
+  if (e < -3 || e > 5) {
+    var m = x / Math.pow(10, e);
+    if (Math.abs(m) >= 9.995) { m /= 10; e += 1; }
+    return num(m, n - 1) + '·10' + sup(e);
+  }
+  if (e >= n - 1) return num(Math.round(x), 0);
+  return num(x, Math.max(0, n - 1 - e));
+}
+function stolbT(h) { return h >= 1 ? sig(h, 3) + ' м' : h >= 0.01 ? sig(h * 100, 3) + ' см' : sig(h * 1000, 2) + ' мм'; }
+function rashodT(q) { return q >= 1 ? sig(q, 2) : sig(q, 2); }
+
+/* ── сцена ── */
+var W = 1000, HGT = 450;
+var PX0 = 40, PX1 = 700, KX = (PX1 - PX0) / L, KY = 3 * KX;    /* поперёк втрое крупнее */
+var YA = 225, YC_LO = 160, YC_HI = 30, GY0 = 336, GY1 = 432;
+var TRUBKI = [0.05, X_GORLO, 0.24, 0.35];
+var CYAN = '53,200,216', ORANGE = '#ffb454', RED = '#ff7a66', LEAF = '#7ed957';
+var ZAMED = [1, 2, 5, 10, 20, 50, 100, 200];
+
+function px(x) { return PX0 + x * KX; }
+
+function strelkaX(ctx, x, y, len, col) {
+  var head = 7, s = len < 0 ? -1 : 1, a = Math.abs(len);
+  if (a < 5) return;                 /* короче наконечника не рисуем */
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2.6; ctx.lineCap = 'butt';
+  if (a > head + 1) {
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + s * (a - head), y); ctx.stroke();
+  }
+  var hh = Math.min(head, a);
+  ctx.beginPath();
+  ctx.moveTo(x + s * a, y);
+  ctx.lineTo(x + s * (a - hh), y - 4.5);
+  ctx.lineTo(x + s * (a - hh), y + 4.5);
+  ctx.closePath(); ctx.fill();
+}
+
+function Venturi() {
+  var S = useRef(null);
+  if (!S.current) {
+    S.current = { fi: 0, Qlpm: 10, trenie: false, run: true, R: null, listki: [], acc: 0, tSpawn: 0, err: null, prolet: null };
+    S.current.R = raschet(10, FLUIDS[0], false);
+  }
+  var st = S.current;
+  var [ui, setUi] = useState({ fi: 0, Qlpm: 10, trenie: false, run: true, n: 0 });
+  function obnovit() { setUi({ fi: st.fi, Qlpm: st.Qlpm, trenie: st.trenie, run: st.run, n: Date.now() }); }
+
+  function zamedlenie(R) {
+    var v = R.v2 * KX;
+    for (var i = 0; i < ZAMED.length; i++) if (v / ZAMED[i] <= 260) return ZAMED[i];
+    return ZAMED[ZAMED.length - 1];
+  }
+  function pereschet() {
+    st.R = raschet(st.Qlpm, FLUIDS[st.fi], st.trenie);
+    st.listki = []; st.acc = 0; st.tSpawn = 0; st.err = null; st.prolet = null;
+  }
+
+  function step(dt) {
+    if (!st.run) return;
+    var R = st.R, k = zamedlenie(R), h = DX / (4 * R.v2);
+    var interval = L / R.v1 / 4;                 /* четыре кубика на пролёт широкой части */
+    st.acc += dt / k;
+    while (st.acc >= h) {
+      st.acc -= h;
+      st.tSpawn -= h;
+      if (st.tSpawn <= 0) { st.listki.push({ x: 0, v: R.v1, t: 0, err: 0 }); st.tSpawn += interval; }
+      for (var j = 0; j < st.listki.length; j++) listikShag(R, st.listki[j], h);
+      var zhivye = [];
+      for (j = 0; j < st.listki.length; j++) {
+        var lf = st.listki[j];
+        if (lf.x >= L) {
+          var perv = st.err == null;
+          st.err = lf.err; st.prolet = lf.t;
+          if (perv) obnovit();
+        } else zhivye.push(lf);
+      }
+      st.listki = zhivye;
+    }
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted;
+    var R = st.R, i;
+    /* общий масштаб давления: обе кривые, с трением и без */
+    var pmin = Infinity, pmax = -Infinity;
+    for (i = 0; i < NX; i++) {
+      pmin = Math.min(pmin, R.P[i], R.P0[i]); pmax = Math.max(pmax, R.P[i], R.P0[i]);
+    }
+    var span = Math.max(pmax - pmin, 1e-12);
+    function colY(p) { return YC_LO - (p - pmin) / span * (YC_LO - YC_HI); }
+    function grY(p) { return GY1 - (p - pmin) / span * (GY1 - GY0); }
+    function Pat(x) { var q = x / DX, j = Math.min(NX - 2, Math.floor(q)), t = q - j; return R.P[j] * (1 - t) + R.P[j + 1] * t; }
+
+    /* жидкость и стенки */
+    ctx.beginPath();
+    for (i = 0; i < NX; i += 20) ctx.lineTo(px(R.x[i]), YA - R.d[i] / 2 * KY);
+    for (i = NX - 1; i >= 0; i -= 20) ctx.lineTo(px(R.x[i]), YA + R.d[i] / 2 * KY);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(' + CYAN + ',.10)'; ctx.fill();
+    [-1, 1].forEach(function (sg) {
+      ctx.strokeStyle = 'rgba(' + ink + ',.75)'; ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      for (var j = 0; j < NX; j += 20) ctx.lineTo(px(R.x[j]), YA + sg * R.d[j] / 2 * KY);
+      ctx.lineTo(px(L), YA + sg * D1 / 2 * KY);
+      ctx.stroke();
+    });
+    ctx.save(); ctx.setLineDash([3, 6]);
+    ctx.strokeStyle = 'rgba(' + ink + ',.25)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(PX0, YA); ctx.lineTo(PX1, YA); ctx.stroke();
+    ctx.restore();
+
+    /* манометрические трубки: высота столба по давлению на оси */
+    var y1 = colY(R.P[0]);
+    ctx.save(); ctx.setLineDash([6, 6]);
+    ctx.strokeStyle = 'rgba(' + ink + ',.35)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(px(TRUBKI[0]) - 14, y1); ctx.lineTo(px(TRUBKI[3]) + 30, y1); ctx.stroke();
+    ctx.restore();
+    TRUBKI.forEach(function (xt) {
+      var xp = px(xt), yw = YA - diam(xt).d / 2 * KY, yc = colY(Pat(xt));
+      ctx.fillStyle = 'rgba(' + CYAN + ',.55)';
+      ctx.fillRect(xp - 5, yc, 10, yw - yc);
+      ctx.strokeStyle = 'rgba(' + ink + ',.6)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(xp - 7, YC_HI - 12); ctx.lineTo(xp - 7, yw); ctx.moveTo(xp + 7, YC_HI - 12); ctx.lineTo(xp + 7, yw); ctx.stroke();
+    });
+    var x2 = px(TRUBKI[1]), y2 = colY(Pat(TRUBKI[1]));
+    ctx.strokeStyle = 'rgba(' + ink + ',.7)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(x2 + 14, y1); ctx.lineTo(x2 + 22, y1); ctx.lineTo(x2 + 22, y2); ctx.lineTo(x2 + 14, y2); ctx.stroke();
+    C.label(ctx, x2 + 30, (y1 + y2) / 2 + 6, 'Δh = ' + stolbT(R.stolb), 18, 'rgb(' + ink + ')', 'left');
+
+    /* скорости под трубой */
+    C.label(ctx, px(TRUBKI[0]), 300, num(R.v1, R.v1 < 1 ? 3 : 2) + ' м/с, Re ' + sig(R.Re1, 3), 17, 'rgb(' + mut + ')', 'center');
+    C.label(ctx, px(TRUBKI[1]) + 40, 300, num(R.v2, R.v2 < 1 ? 3 : 2) + ' м/с, Re ' + sig(R.Re2, 3), 17, 'rgb(' + mut + ')', 'center');
+
+    /* давление вдоль оси */
+    C.label(ctx, PX0, GY0 - 8, 'давление на оси', 17, 'rgb(' + mut + ')', 'left');
+    shtrihOs(ctx, ink);
+    if (R.fr) krivaya(ctx, R.P0, 'rgba(' + ink + ',.55)', [7, 6]);
+    krivaya(ctx, R.P, ORANGE, null);
+    if (R.fr) {
+      C.label(ctx, PX1, grY(R.P0[NX - 1]) - 8, 'без трения', 17, 'rgb(' + mut + ')', 'right');
+      C.label(ctx, PX1, Math.min(GY1 + 16, grY(R.P[NX - 1]) + 20), 'с трением', 17, ORANGE, 'right');
+    }
+    function krivaya(c, arr, col, dash) {
+      c.save(); if (dash) c.setLineDash(dash);
+      c.strokeStyle = col; c.lineWidth = 2.6; c.lineJoin = 'round';
+      c.beginPath();
+      for (var j = 0; j < NX; j += 10) c.lineTo(px(R.x[j]), grY(arr[j]));
+      c.stroke(); c.restore();
+    }
+    function shtrihOs(c, inkk) {
+      c.strokeStyle = 'rgba(' + inkk + ',.3)'; c.lineWidth = 1.2;
+      c.beginPath(); c.moveTo(PX0, GY1 + 4); c.lineTo(PX1, GY1 + 4); c.stroke();
+    }
+
+    /* кубики: скорость, сила давления и трение на единицу массы */
+    var aMax = 1e-12;
+    for (i = 0; i < NX; i++) aMax = Math.max(aMax, Math.abs(R.dPdx[i] / R.fl.rho));
+    st.listki.forEach(function (lf) {
+      var xp = px(lf.x), a = uskorenie(R, lf.x);
+      strelkaX(ctx, xp + 9, YA - 9, 70 * lf.v / R.v2, 'rgb(' + CYAN + ')');
+      strelkaX(ctx, xp, YA + 7, 60 * a.aP / aMax, ORANGE);
+      if (R.fr) strelkaX(ctx, xp, YA + 17, 60 * a.aF / aMax, RED);
+      /* кубик жидкости квадратиком (вычитка 18.10, замечание 14: листик ушёл из главы) */
+      ctx.save(); ctx.translate(xp, YA);
+      ctx.fillStyle = LEAF; ctx.fillRect(-4.5, -4.5, 9, 9); ctx.restore();
+    });
+
+    /* табло */
+    var X = 975;
+    C.readout(ctx, X, 30, 'ДО ГОРЛА ΔP, Па', sig(R.dP, R.dP >= 1000 ? 4 : 3), ORANGE);
+    C.readout(ctx, X, 112, 'СТОЛБ ДО ГОРЛА', stolbT(R.stolb), 'rgb(' + CYAN + ')');
+    C.readout(ctx, X, 194, 'ТРЕНИЕ / НАПОР', '~' + sig(R.ocenka, 2), 'rgb(' + ink + ')');
+    C.label(ctx, X, 256, 'оценка 16l/(Re·d)', 17, 'rgb(' + mut + ')', 'right');
+    C.readout(ctx, X, 290, 'МОДЕЛЬ', R.model, R.model === 'Бернулли' ? 'rgb(' + CYAN + ')' : R.model === 'Пуазёйль' ? RED : ORANGE);
+    C.label(ctx, X, 372, R.lossRatio != null ? 'Пуазёйль: ' + sig(R.lossRatio, 3) + ' напора' : '', 17, 'rgb(' + mut + ')', 'right');
+    var kz = zamedlenie(R);
+    C.label(ctx, X, 398, kz === 1 ? 'в настоящем времени' : 'замедлено в ' + kz + ' ' + C.plural(kz, 'раз', 'раза', 'раз'), 17, 'rgb(' + mut + ')', 'right');
+    C.label(ctx, X, 424, 'поперёк втрое крупнее', 17, 'rgb(' + mut + ')', 'right');
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  function pokaz() {
+    var R = st.R;
+    return { fluid: R.fl.id, Q: R.Qlpm, viscous: R.trenie, frictionDrawn: R.fr, laminar: R.lam,
+      v1: R.v1, v2: R.v2, dP: R.dP, dPideal: R.dP0, column: R.stolb, Re1: R.Re1, Re2: R.Re2,
+      head: R.head, loss: R.loss, lossRatio: R.lossRatio, estimate: R.ocenka, model: R.model,
+      leafError: st.err, leafTime: st.prolet, slow: zamedlenie(R), leaves: st.listki.length,
+      dPdxDiffuser: R.dPdxDiff, vDiffuser: R.vDiff, aDiffuser: R.aDiff,
+      Pout: R.Pout, Pthroat: R.P[Math.round(X_GORLO / DX)], run: st.run };
+  }
+  try { Object.defineProperty(window, '__demoState', { configurable: true, get: pokaz }); } catch (e) {}
+  window.__demoSet = function (q) {
+    q = q || {};
+    if (q.fluid) FLUIDS.forEach(function (f, i) { if (f.id === q.fluid) st.fi = i; });
+    if (q.Q != null) st.Qlpm = q.Q;
+    if (q.viscous != null) st.trenie = !!q.viscous;
+    st.run = q.run == null ? true : !!q.run;
+    pereschet(); obnovit();
+    return true;
+  };
+  window.__demoModel = { raschet: raschet, diam: diam, listikShag: listikShag, FLUIDS: FLUIDS, L: L, NX: NX, DX: DX };
+
+  function pick(i) { st.fi = i; pereschet(); obnovit(); }
+  function setQ(v) { st.Qlpm = v < 2 ? Math.round(v * 10) / 10 : Math.round(v * 2) / 2; pereschet(); obnovit(); }
+  function setTrenie(b) { st.trenie = b; pereschet(); obnovit(); }
+  function pusk() { st.run = !st.run; obnovit(); }
+
+  function slova() {
+    var A = function (t) { return '<span class="accent">' + t + '</span>'; };
+    var R = st.R, fl = R.fl;
+    var s = fl.label + ', ' + num(R.Qlpm, R.Qlpm < 2 ? 1 : R.Qlpm % 1 ? 1 : 0) + ' л/мин. Скорость из неразрывности: ' +
+      num(R.v1, 3) + ' м/с в широкой части, ' + A(num(R.v2, R.v2 < 1 ? 3 : 2) + ' м/с') + ' в горле. ';
+    if (!R.fr) {
+      s += 'Давление из второго закона для элемента: в горле ниже на ' + A(sig(R.dP, R.dP >= 1000 ? 4 : 3) + ' Па') + ', ' + stolbT(R.stolb) + ' ' + fl.stolb +
+        ' столба, а за горлом возвращается. ';
+    } else {
+      s += 'Трение по Пуазёйлю съедает ' + A(sig(R.lossRatio, 2) + ' напора горла') + (R.monoton ? ': давление падает вдоль всей трубы и за горлом не возвращается. ' : ': за горлом давление растёт, но до прежнего уровня не доходит. ');
+    }
+    if (st.err != null) s += 'Кубик жидкости, который разгоняет только сила из поля давления' + (R.fr ? ' и трение' : '') + ', идёт со скоростью Q/S до ' + sig(st.err, 1) + '. ';
+    if (!R.fr) s += 'В диффузоре сила давления смотрит назад, и кубик тормозится: жидкость идёт к большему давлению. ';
+    if (st.trenie && !R.lam) s += 'Re в горле ' + num(R.Re2, 0) + ' выше двух тысяч: закон Пуазёйля к этому течению неприменим, кривая трения не рисуется. ';
+    var oc = sig(R.ocenka, 2);
+    if (R.model === 'Бернулли') s += 'Оценка 16l/(Re·d) = ' + oc + ': трение отнимает малую долю напора, Бернулли годится.';
+    else if (R.model === 'Пуазёйль') s += 'Оценка 16l/(Re·d) = ' + oc + ': трение главное, Бернулли негоден, работает Пуазёйль.';
+    else s += 'Оценка 16l/(Re·d) = ' + oc + ': трение и разгон сравнимы, нужны оба.';
+    return s;
+  }
+
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Жидкость:">
+          ${FLUIDS.map(function (f, i) { return html`
+            <${C.Btn} key=${f.id} active=${ui.fi === i} onClick=${function () { pick(i); }}>${f.label}<//>`; })}
+        <//>
+        <${C.Slider} label="Расход:" min=${0.2} max=${20} log=${true}
+                     value=${ui.Qlpm} onChange=${setQ}
+                     display=${num(ui.Qlpm, ui.Qlpm < 2 || ui.Qlpm % 1 ? 1 : 0) + ' л/мин'} />
+        <${C.Group} label="Трение:">
+          <${C.Btn} active=${!ui.trenie} onClick=${function () { setTrenie(false); }}>нет<//>
+          <${C.Btn} active=${ui.trenie} onClick=${function () { setTrenie(true); }}>по Пуазёйлю<//>
+        <//>
+        <${C.Group}>
+          <${C.Btn} onClick=${pusk}>${ui.run ? 'Пауза' : 'Пуск'}<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Venturi);
+</script>
+</body>
+</html>

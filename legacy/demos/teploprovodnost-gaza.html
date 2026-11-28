@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Теплопроводность газа</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-13/">&larr; Неделя 13</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/demo-gaz.js"></script>
+<script src="../shared/analytics.js?demo=teploprovodnost-gaza"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html, G = window.DemoGaz;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Демка тринадцатой недели к разделу «Перенесём вещество, импульс и тепло
+   одним пролётом», блоки zakon-furye и usloviya-perenosa (вычитка автора
+   24.11, замечание 3; бриф briefs/vychitka13_sborka.md, роль Т; карточка 5
+   описи briefs/lekciya13_demki_minuty.md §1.5). Счёт в shared/demo-gaz.js,
+   твёрдые шары событийным счётом, с добавкой 24.11: у каждой стенки своя
+   температура и свой счётчик теплоты (kTwalls, g.Qw).
+
+   МОДЕЛЬ. Единицы: масса лёгкой молекулы 1, зазор между пластинами L = 1,
+   k = 1. Две трубки центров 1 × a × a, a = 0,0657: стенка x = 0 горячая,
+   kT = 1,5, стенка x = 1 холодная, kT = 0,5, боковые зеркальные. Тёплая
+   стенка отражает диффузно: молекула уходит от неё со скоростью по
+   Максвеллу её температуры, нормальная составляющая с весом потока.
+   Отданная стенкой энергия копится в g.Qw. В верхней трубке лёгкий газ,
+   масса 1, в нижней тяжёлый, масса 10 (отношение масс гелия и аргона,
+   4 и 40); диаметр шара у обоих один, d = 0,004351. Диаметр и сечение
+   трубки выбраны так, чтобы при 1000 молекулах доля объёма шаров была
+   0,01, а пробег λ = 1/(√2 nπd²χ) с множителем Энскога χ равнялся
+   0,05: зазор в двадцать пробегов. Давление меняется числом молекул в
+   той же трубке, от 1000 до 16, пробег от L/20 до 3,2 L.
+
+   СТАРТ. Молекулы стоят равномерно, скорость каждой по Максвеллу при
+   температуре прямой линии между пластинами в её точке. Из равновесия
+   при одной температуре тяжёлый газ шёл бы к своему профилю около 30
+   единиц времени, четверть минуты показа сверх нужного. Плотность сама
+   приходит к n ∝ 1/T за единицы времени.
+
+   ЧТО МЕРЯЕТСЯ. Поток тепла на единицу площади: теплота, отданная газу
+   горячей пластиной, и теплота, взятая холодной, за время, делённые на
+   a²; демка пишет их среднее. Копится с t = 3 у лёгкого газа и с t = 8 у
+   тяжёлого, ошибка по блокам в одну единицу, а когда пробег больше зазора, в
+   три: у редкого газа молекула, отлетевшая почти вдоль пластины, долго не
+   несёт тепла, и соседние блоки помнят друг друга. Профиль температуры: кинетическая
+   температура m⟨v²⟩/3 молекул в каждом из двадцати слоёв, сумма по
+   выборкам через 0,05 единицы с того же момента. Теплопроводность по наклону
+   в толще газа, слои с серединой от 0,2 до 0,8: у твёрдых шаров κ ∝ √T,
+   поэтому прямая по x не T, а Θ = T^{3/2}, и q = (2/3)κ₁|dΘ/dx|, κ₁ при
+   kT = 1. У пластин температура газа скачет: молекулы, отлетевшие от
+   стенки, помнят её температуру на длине порядка пробега, и наклон берётся
+   вдали от пластин. Ошибка κ₁ складным ножом по тем же блокам: без блока j
+   пересчитываются и поток, и профиль, так в ошибку входит и шум наклона.
+
+   С ЧЕМ СВЕРЯЕТСЯ, в счёт не входит. Теплопроводность твёрдых шаров в
+   первом приближении Чепмена–Энскога κ₀ = (75/64)·k√(kT/πm)/d², в плотном
+   газе по Энскогу κ/κ₀ = 1/χ + 1,2·4η + 0,7575·(4η)²χ, η доля объёма
+   (1,024 при η = 0,01); высшие приближения добавляют 2,5 %. Модель главы
+   κ_гл = ⅓ n⟨v⟩λ c_v, c_v = 3k/2, λ = 1/(√2 nσ): у твёрдых шаров
+   κ₀/κ_гл = 3,68, как у аргона во врезке zakon-furye (модель даёт 0,27
+   опыта). Плато: поток κΔT/L без скачков, (2/3)κ₁(T_г^{3/2} − T_х^{3/2}).
+   Пролёт без ударов (пробег много больше зазора): от каждой пластины
+   молекулы уходят по её температуре, поток q_К = 4nk(T_г − T_х) /
+   (√(2πm/k)·(T_г^{−½} + T_х^{−½})), n = N/(La²). Отношение лёгкого газа к
+   тяжёлому √10 = 3,162 при любом давлении: шары одного размера, стенки
+   отдают скорость √(kT/m), и тяжёлый газ точно повторяет лёгкий со
+   временем, растянутым в √10 раз. Поэтому κ к теории у газов один, и
+   различие между ними за конечный счёт статистическое.
+
+   ПРОВЕРКА (24.11; briefs/lekciya13_skripty/vychitka/t_teplo.py и
+   t_proverka.py: тот же движок в node и разбор своим кодом на numpy;
+   t_demka.py: табло в hcheck против python; отчёт
+   briefs/vychitka13_T_REPORT.md). 1000 молекул, 24 зерна на газ, лёгкий 60
+   единиц, тяжёлый 190 (те же 60 в растянутом времени): отношение потоков
+   3,152 ± 0,017 при √10 = 3,162 (гипотезы «от массы не зависит» и «обратно
+   массе» отвергнуты на 127 и 403 ошибках), профили газов расходятся не
+   больше чем на 0,006. κ₁ по наклону к теории 1,086 ± 0,005 у лёгкого и
+   1,079 ± 0,007 у тяжёлого (различие 0,9 ошибки), вместе 1,082 ± 0,004; к
+   модели главы 4,1. Откуда 8 % сверх теории: у боковых стенок трубки
+   шириной 15 d шару не хватает соседей, и ударов в равновесии 0,932 от
+   √2 nσ⟨v⟩χ, а высшие приближения добавляют 2,5 %; с обеими поправками
+   теория даёт 1,100, счёт 0,984 ± 0,004 от неё. В трубке вдвое шире ударов
+   0,964, κ₁ 1,03 ± 0,03 от теории. Ошибка κ за один показ: разброс между
+   зёрнами 0,056 при t = 20 (от 1,05 до 1,16 у 80 % зёрен), 0,043 при t = 38;
+   складной нож по блокам в одну единицу даёт 0,059 и 0,040.
+   Поток к плато κΔT/L при зазоре в 20, 10, 5, 2,4, 1,3 пробега 0,88;
+   0,74; 0,55; 0,37; 0,22, к пролёту без ударов при пробеге 0,8; 1,6; 3,2 зазора
+   0,71; 0,81; 0,89. Профиль: скачок у горячей пластины 0,12–0,13, у
+   холодной 0,05–0,06; плотность у горячей 0,69 средней, у холодной 1,58.
+   Редкий газ шумит сильнее, чем пишет ошибка по блокам: при 16 молекулах
+   и t = 120 отношение потоков 3,16 с разбросом 0,44 между зёрнами, а блоки
+   в три единицы дают 0,31; поток тяжёлого газа выше сплошной прямой у 21 %
+   зёрен. Поэтому в подписи редкого газа отношение стоит без ошибки, со
+   словами о шуме. Учёт энергии до 4·10⁻¹⁵. Установление и шум: из прямого профиля поток
+   лёгкого выходит на своё за 3 единицы, тяжёлого за 6–8; шум среднего
+   тяжёлого 16 % за 5 единиц, 11 % за 10, 8 % за 20, 6 % за 40, лёгкого
+   вдвое меньше. Оба газа стоят 1,64·10⁵ событий на единицу времени; при
+   2,8·10⁵ событий в секунду в Chrome это 1,7 единицы в секунду без
+   рисунка и 1,0–1,3 с рисунком (hcheck), и отношение с ошибкой около 10 %
+   табло пишет через 15–20 с показа. Табло, ошибка κ складным ножом и длина
+   блока совпали с python до 10⁻⁹ на давлениях 1, 1/16, 1/64; подложенные
+   ошибки (κ₁ без множителя 3/2, пролёт без √2π, нож без (k − 1)/k) сверку
+   роняют. */
+
+var L = 1, NMAX = 1000, LAM_MAX = 0.05, ETA_MAX = 0.01, TG = 1.5, TX = 0.5;
+var D = 6 * Math.SQRT2 * ETA_MAX * LAM_MAX * G.chi(ETA_MAX);           /* 0,004351 */
+var AA = NMAX * Math.PI * D * D * D / (6 * ETA_MAX), A1 = Math.sqrt(AA); /* сечение трубки a² */
+var NB = 20, DT_S = 0.05, OKNO0 = 0.2, OKNO1 = 0.8;
+/* блок для ошибки: одна единица, а когда пробег больше зазора, три (шапка, «Что меряется») */
+function blokN(N) { return lamN(N) > L ? 3 : 1; }
+var GAZY = [
+  { m: 1, ustan: 3, cvet: '77,182,198', imya: 'лёгкий, как гелий: масса 1' },
+  { m: 10, ustan: 8, cvet: '224,138,82', imya: 'тяжёлый, как аргон: масса 10' }
+];
+var DOLI = [1, 2, 4, 8, 16, 32, 64];        /* давление: 1, 1/2 … 1/64 от наибольшего */
+var BUDGET = 26;                            /* мс счёта на кадр */
+var SKOROST = 6;                            /* единиц модели в секунду, не больше */
+var KL = 15;                                /* κ по наклону пишется, пока зазор не меньше KL пробегов */
+
+function chiE(e) { return G.chi(e); }
+function etaN(N) { return N * Math.PI * D * D * D / (6 * AA * L); }
+function lamN(N) { var n = N / (AA * L); return 1 / (Math.SQRT2 * n * Math.PI * D * D * chiE(etaN(N))); }
+function kap0(m) { return 75 / 64 * Math.sqrt(1 / (Math.PI * m)) / (D * D); }
+function enskog(e) { return 1 / chiE(e) + 1.2 * 4 * e + 0.7575 * 16 * e * e * chiE(e); }
+function kapGl(m) { return Math.sqrt(8 / (Math.PI * m)) / (2 * Math.SQRT2 * Math.PI * D * D); }
+function qPlato(m, N) { return kap0(m) * enskog(etaN(N)) * 2 / 3 * (Math.pow(TG, 1.5) - Math.pow(TX, 1.5)) / L; }
+function qKnudsen(m, N) {
+  var n = N / (AA * L);
+  return 4 * n * (TG - TX) / (Math.sqrt(2 * Math.PI * m) * (1 / Math.sqrt(TG) + 1 / Math.sqrt(TX)));
+}
+
+function novyjGaz(gz, N, seed) {
+  var g = G.create({ N: N, d: D, X: L, Ly: A1, Lz: A1, m: gz.m, kT: 1, seed: seed,
+                     kTwalls: [TG, TX, null, null, null, null] });
+  /* прямой профиль: скорость каждой молекулы по её месту (шапка, «Старт») */
+  var p = g.pos(), i;
+  for (i = 0; i < N; i++) {
+    var s = Math.sqrt(TG + (TX - TG) * p[3 * i] / L);
+    g.vx[i] *= s; g.vy[i] *= s; g.vz[i] *= s;
+  }
+  g.setCollisions(true); g.E0 = g.energy();
+  return { gz: gz, g: g, N: N, blok: blokN(N), buf: new Float64Array(3 * N), Q0: 0, Q1: 0,
+           e: new Float64Array(NB), c: new Float64Array(NB), now: new Float64Array(NB), nowW: 0,
+           sq: 0, st: 0, bq: 0, bt: 0, be: new Float64Array(NB), bc: new Float64Array(NB),
+           bloki: [], blokiE: [], blokiC: [], vyb: 0 };
+}
+
+/* одна выборка газа: шаг DT_S, теплота пластин, профиль */
+function vyborka(S) {
+  var g = S.g, N = S.N, m = S.gz.m, i;
+  g.advance(DT_S);
+  var q = ((g.Qw[0] - S.Q0) - (g.Qw[1] - S.Q1)) / (2 * AA * DT_S);
+  S.Q0 = g.Qw[0]; S.Q1 = g.Qw[1];
+  var p = g.pos(S.buf), e = new Float64Array(NB), c = new Float64Array(NB);
+  for (i = 0; i < N; i++) {
+    var b = Math.min(NB - 1, Math.max(0, Math.floor(p[3 * i] / L * NB)));
+    e[b] += m * (g.vx[i] * g.vx[i] + g.vy[i] * g.vy[i] + g.vz[i] * g.vz[i]); c[b] += 1;
+  }
+  /* мгновенный профиль для рисунка, сглаженный по половине единицы */
+  var al = DT_S / 0.5;
+  for (i = 0; i < NB; i++) S.now[i] = S.now[i] * (1 - al) + al * (c[i] ? e[i] / (3 * c[i]) : S.now[i]);
+  S.nowW = S.nowW * (1 - al) + al;
+  if (g.t > S.gz.ustan + 1e-9) {
+    S.vyb += 1;
+    for (i = 0; i < NB; i++) { S.e[i] += e[i]; S.c[i] += c[i]; S.be[i] += e[i]; S.bc[i] += c[i]; }
+    S.sq += q * DT_S; S.st += DT_S; S.bq += q * DT_S; S.bt += DT_S;
+    if (S.bt >= S.blok - 1e-9) {
+      S.bloki.push(S.bq / S.bt); S.blokiE.push(S.be); S.blokiC.push(S.bc);
+      S.bq = 0; S.bt = 0; S.be = new Float64Array(NB); S.bc = new Float64Array(NB);
+    }
+  }
+}
+
+/* наклон Θ = T^{3/2} по слоям толщи, наименьшие квадраты: [наклон, сдвиг] */
+function naklon(e, c) {
+  var sx = 0, sy = 0, sxx = 0, sxy = 0, n = 0, i;
+  for (i = 0; i < NB; i++) {
+    var x = (i + 0.5) / NB * L;
+    if (x <= OKNO0 * L || x >= OKNO1 * L || !c[i]) continue;
+    var th = Math.pow(e[i] / (3 * c[i]), 1.5);
+    sx += x; sy += th; sxx += x * x; sxy += x * th; n += 1;
+  }
+  var kk = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+  return [kk, (sy - kk * sx) / n];
+}
+
+/* ошибка κ₁ складным ножом по готовым блокам: без блока j считаются и поток,
+   и профиль, так в ошибку входит и шум наклона */
+function k1Nozh(S) {
+  var k = S.bloki.length, i, j;
+  if (k < 4) return null;
+  var sq = 0, se = new Float64Array(NB), sc = new Float64Array(NB);
+  for (j = 0; j < k; j++) { sq += S.bloki[j]; for (i = 0; i < NB; i++) { se[i] += S.blokiE[j][i]; sc[i] += S.blokiC[j][i]; } }
+  var kj = [], mu = 0, v = 0, e = new Float64Array(NB), c = new Float64Array(NB);
+  for (j = 0; j < k; j++) {
+    for (i = 0; i < NB; i++) { e[i] = se[i] - S.blokiE[j][i]; c[i] = sc[i] - S.blokiC[j][i]; }
+    kj.push(1.5 * ((sq - S.bloki[j]) / (k - 1)) / (-naklon(e, c)[0]));
+    mu += kj[j];
+  }
+  mu /= k;
+  for (j = 0; j < k; j++) v += (kj[j] - mu) * (kj[j] - mu);
+  return Math.sqrt((k - 1) / k * v);
+}
+
+function itogGaza(S) {
+  var r = { m: S.gz.m, t: S.g.t, q: null, qErr: null, nBlok: S.bloki.length, blok: S.blok, T: [], k1: null, k1Err: null,
+            k1Th: kap0(S.gz.m) * enskog(etaN(S.N)), k1Gl: kapGl(S.gz.m),
+            qPlato: qPlato(S.gz.m, S.N), qKnudsen: qKnudsen(S.gz.m, S.N), skachok: null, drift: S.g.drift() };
+  var i;
+  for (i = 0; i < NB; i++) r.T.push(S.c[i] ? S.e[i] / (3 * S.c[i]) : null);
+  if (S.st > 0) r.q = S.sq / S.st;
+  var k = S.bloki.length;
+  if (k >= 4) {
+    var mu = 0, v = 0;
+    for (i = 0; i < k; i++) mu += S.bloki[i];
+    mu /= k;
+    for (i = 0; i < k; i++) v += (S.bloki[i] - mu) * (S.bloki[i] - mu);
+    r.qErr = Math.sqrt(v / (k - 1) / k);
+  }
+  if (r.q != null && S.vyb > 0) {
+    var f = naklon(S.e, S.c), kk = f[0], bb = f[1];
+    r.k1 = 1.5 * r.q / (-kk);
+    r.k1Err = k1Nozh(S);
+    r.fit = [kk, bb];
+    /* скачок: прямая Θ толщи у пластины против температуры пластины */
+    r.skachok = [TG - Math.pow(Math.max(0, bb), 2 / 3), Math.pow(Math.max(0, kk * L + bb), 2 / 3) - TX];
+  }
+  return r;
+}
+
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+function tys(v) {
+  /* поток крупным числом с пробелом в тысячах: 30 200 */
+  if (v == null || !isFinite(v)) return '—';
+  var r = v >= 1000 ? Math.round(v / 100) * 100 : Math.round(v);
+  return String(r).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+/* ══════════════════ сцена ══════════════════
+
+   Слева две трубки между пластинами, сверху лёгкий газ, снизу тяжёлый;
+   поперёк трубка нарисована в 2,3 раза шире настоящей, иначе тысяча
+   молекул слилась бы в полосу. Молекулы цветом своего газа, фон трубки
+   по температуре слоя, от синего (температура холодной пластины) к
+   красному (горячей). Справа профиль температуры
+   обоих газов и поток против числа молекул в логарифмах: прямая пролёта
+   без ударов, пунктир плато κΔT/L и измеренные точки, которые копятся при
+   смене давления. Внизу показания. */
+
+var W = 1000, HGT = 460;
+var TX0 = 64, TX1 = 524, TUB = [[62, 132], [212, 282]];     /* трубки: x и y */
+var PX0 = 622, PX1 = 972, PY0 = 48, PY1 = 168;               /* профиль */
+var FX0 = 622, FX1 = 972, FY0 = 222, FY1 = 330;              /* поток против N */
+var THOT = '255,112,78', TCOLD = '104,158,255';
+var QMIN = 300, QMAX = 60000, NMIN = 12, NMAXG = 1300;
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function Teplo() {
+  var box = useRef(null);
+  function seedNew() { return (Math.random() * 4294967296) >>> 0; }
+  function sozdat(dolya, seed) {
+    var N = Math.round(NMAX / dolya);
+    return { dolya: dolya, N: N, seed: seed, gazy: GAZY.map(function (gz, k) { return novyjGaz(gz, N, (seed + 7919 * k) >>> 0); }) };
+  }
+  if (!box.current) {
+    var d0 = 1;
+    try {
+      var qd = parseInt(new URLSearchParams(location.search).get('davlenie'), 10);
+      if (DOLI.indexOf(qd) >= 0) d0 = qd;
+    } catch (e) {}
+    box.current = { M: sozdat(d0, seedNew()), tochki: [[], []] };
+  }
+  var S = box.current;
+  var pair = useState({ n: 0 });
+  var setUi = pair[1];
+  var ui = useRef({ last: 0 });
+
+  function snyat() {
+    var M = S.M, it = M.gazy.map(itogGaza);
+    var r = {
+      N: M.N, dolya: M.dolya, seed: M.seed, L: L, d: D, a: A1, eta: etaN(M.N), lambda: lamN(M.N),
+      LnaLambda: L / lamN(M.N), TG: TG, TX: TX, t: M.gazy[0].g.t, gazy: it,
+      /* отношение пишется, когда у обоих газов набралось по четыре блока */
+      ratio: it[0].nBlok >= 4 && it[1].nBlok >= 4 ? it[0].q / it[1].q : null, ratioTheory: Math.sqrt(10),
+      tochki: S.tochki.map(function (a) { return a.slice(); })
+    };
+    if (r.ratio != null && it[0].qErr != null && it[1].qErr != null)
+      r.ratioErr = r.ratio * Math.hypot(it[0].qErr / it[0].q, it[1].qErr / it[1].q);
+    for (var k in pokaz) delete pokaz[k];
+    Object.assign(pokaz, r);
+  }
+  if (pokaz.N == null) snyat();
+
+  /* точка текущего давления уходит на график, когда у тяжёлого газа
+     набралось хотя бы четыре блока */
+  function zapomnit() {
+    var it = pokaz.gazy;
+    if (!it) return;
+    it.forEach(function (g, k) {
+      if (g.q == null || g.nBlok < 4) return;
+      var a = S.tochki[k].filter(function (p) { return p[0] !== pokaz.N; });
+      a.push([pokaz.N, g.q, g.qErr]);
+      S.tochki[k] = a;
+    });
+  }
+  function davlenie(dolya) {
+    zapomnit();
+    S.M = sozdat(dolya, seedNew());
+    snyat(); setUi(function (u) { return { n: u.n + 1 }; });
+  }
+  function zanovo(o) {
+    o = o || {};
+    S.tochki = [[], []];
+    S.M = sozdat(o.dolya || S.M.dolya, o.seed != null ? o.seed : seedNew());
+    snyat(); setUi(function (u) { return { n: u.n + 1 }; });
+  }
+
+  /* Счёт идёт так быстро, как успевает машина за BUDGET мс кадра, но не
+     быстрее SKOROST единиц в секунду: у редкого газа счёт дешёвый, и без
+     предела молекулы мелькали бы. Отставание не копится. */
+  function step(dt) {
+    var t0 = performance.now(), M = S.M;
+    M.dolg = (M.dolg || 0) + (dt || 1 / 60) * SKOROST;
+    while (M.dolg >= DT_S && performance.now() - t0 < BUDGET) { M.gazy.forEach(vyborka); M.dolg -= DT_S; }
+    if (M.dolg > DT_S) M.dolg = DT_S;
+    snyat();
+    ui.current.last += 1;
+    if (ui.current.last > 15) { ui.current.last = 0; setUi(function (u) { return { n: u.n + 1 }; }); }
+  }
+
+  /* ── рисунок ── */
+
+  function cvetE(tau) {
+    var f = Math.max(0, Math.min(1, (tau - TX) / (TG - TX)));
+    var a = TCOLD.split(','), b = THOT.split(',');
+    return a.map(function (v, i) { return Math.round(+v + (b[i] - v) * f); }).join(',');
+  }
+
+  function trubki(ctx, ink, mut) {
+    var M = S.M, sx = (TX1 - TX0) / L, k, i;
+    M.gazy.forEach(function (Sg, k2) {
+      var y0 = TUB[k2][0], y1 = TUB[k2][1], sy = (y1 - y0) / A1, g = Sg.g, p = g.pos(Sg.buf), N = Sg.N;
+      ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(TX0, y0 - 3); ctx.lineTo(TX1, y0 - 3); ctx.moveTo(TX0, y1 + 3); ctx.lineTo(TX1, y1 + 3); ctx.stroke();
+      /* фон трубки по температуре слоя (накопленный профиль, а пока его нет,
+         сглаженный мгновенный), поверх молекулы цветом своего газа */
+      var nak = pokaz.gazy && pokaz.gazy[k2].q != null ? pokaz.gazy[k2].T : null;
+      if (Sg.nowW > 0) for (k = 0; k < NB; k++) {
+        var Tk = nak && nak[k] != null ? nak[k] : Sg.now[k] / Sg.nowW;
+        ctx.fillStyle = 'rgba(' + cvetE(Tk) + ',.42)';
+        ctx.fillRect(TX0 + k / NB * (TX1 - TX0), y0 - 3, (TX1 - TX0) / NB + 0.5, y1 - y0 + 6);
+      }
+      var r = N > 400 ? 2.2 : 3;
+      ctx.fillStyle = 'rgba(' + Sg.gz.cvet + ',.95)';
+      ctx.beginPath();
+      for (i = 0; i < N; i++) {
+        var px = TX0 + p[3 * i] * sx, py = y0 + p[3 * i + 1] * sy;
+        ctx.moveTo(px + r, py); ctx.arc(px, py, r, 0, 2 * Math.PI);
+      }
+      ctx.fill();
+      C.label(ctx, TX0, y0 - 14, Sg.gz.imya, 17, 'rgb(' + Sg.gz.cvet + ')', 'left');
+      var it = pokaz.gazy ? pokaz.gazy[k2] : null;
+      var txt = it && it.q != null ? 'поток ' + tys(it.q) + (it.qErr != null ? ' ± ' + num(100 * it.qErr / it.q, 0) + ' %' : '') : 'поток устанавливается';
+      C.label(ctx, TX1, y0 - 14, txt, 17, 'rgba(' + mut + ',.95)', 'right');
+    });
+    /* пластины на обе трубки */
+    var yt = TUB[0][0] - 6, yb = TUB[1][1] + 6;
+    ctx.fillStyle = 'rgb(' + THOT + ')'; ctx.fillRect(TX0 - 10, yt, 7, yb - yt);
+    ctx.fillStyle = 'rgb(' + TCOLD + ')'; ctx.fillRect(TX1 + 3, yt, 7, yb - yt);
+    C.label(ctx, TX0 - 6, yb + 26, 'горячая, kT = 1,5', 17, 'rgb(' + THOT + ')', 'left');
+    C.label(ctx, TX1 + 6, yb + 26, 'холодная, kT = 0,5', 17, 'rgb(' + TCOLD + ')', 'right');
+    C.label(ctx, (TX0 + TX1) / 2, yb + 52, 'пробег λ = ' + (pokaz.LnaLambda >= 1 ? 'L/' + num(pokaz.LnaLambda, 0) : num(1 / pokaz.LnaLambda, 1) + ' L') +
+            ', ' + pokaz.N + ' ' + C.plural(pokaz.N, 'молекула', 'молекулы', 'молекул') + ' в трубке', 17, 'rgba(' + mut + ',.95)');
+  }
+
+  function profil(ctx, ink, mut) {
+    var tmin = 0.4, tmax = 1.6, sx = (PX1 - PX0) / L, sy = (PY1 - PY0) / (tmax - tmin), M = S.M;
+    function Y(T) { return PY1 - (Math.max(tmin, Math.min(tmax, T)) - tmin) * sy; }
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PX0, PY0); ctx.lineTo(PX0, PY1); ctx.lineTo(PX1, PY1); ctx.stroke();
+    C.label(ctx, PX0, PY0 - 16, 'температура поперёк зазора', 17, 'rgba(' + mut + ',.95)', 'left');
+    [0.5, 1, 1.5].forEach(function (v) { C.label(ctx, PX0 - 7, Y(v) + 6, num(v, 1), 17, 'rgba(' + mut + ',.95)', 'right'); });
+    C.label(ctx, PX0, PY1 + 22, '0', 17, 'rgba(' + mut + ',.95)', 'center');
+    C.label(ctx, PX1, PY1 + 22, 'L', 17, 'rgba(' + mut + ',.95)', 'center');
+    /* температуры пластин */
+    ctx.fillStyle = 'rgb(' + THOT + ')'; ctx.fillRect(PX0 - 2, Y(TG) - 2, 12, 4);
+    ctx.fillStyle = 'rgb(' + TCOLD + ')'; ctx.fillRect(PX1 - 10, Y(TX) - 2, 12, 4);
+    var it = pokaz.gazy || [];
+    M.gazy.forEach(function (Sg, k) {
+      var r = it[k], i, x, T, nak = r && r.q != null;
+      ctx.fillStyle = 'rgb(' + Sg.gz.cvet + ')';
+      for (i = 0; i < NB; i++) {
+        x = PX0 + (i + 0.5) / NB * L * sx;
+        T = nak && r.T[i] != null ? r.T[i] : (Sg.nowW ? Sg.now[i] / Sg.nowW : null);
+        if (T == null) continue;
+        ctx.beginPath(); ctx.arc(x + (k ? 3 : -3), Y(T), k ? 3.6 : 4.2, 0, 2 * Math.PI); ctx.fill();
+      }
+      if (nak && r.fit && pokaz.LnaLambda >= KL) {
+        ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = 'rgba(' + Sg.gz.cvet + ',.8)'; ctx.lineWidth = 1.5; ctx.beginPath();
+        for (i = 0; i <= 40; i++) {
+          x = i / 40 * L;
+          var th = r.fit[0] * x + r.fit[1];
+          var yy = Y(Math.pow(Math.max(0, th), 2 / 3));
+          if (i) ctx.lineTo(PX0 + x * sx, yy); else ctx.moveTo(PX0 + x * sx, yy);
+        }
+        ctx.stroke(); ctx.restore();
+      }
+    });
+  }
+
+  function potok(ctx, ink, mut) {
+    var lx0 = Math.log(NMIN), lx1 = Math.log(NMAXG), ly0 = Math.log(QMIN), ly1 = Math.log(QMAX);
+    function X(N) { return FX0 + (Math.log(N) - lx0) / (lx1 - lx0) * (FX1 - FX0); }
+    function Y(q) { return FY1 - (Math.log(Math.max(QMIN, Math.min(QMAX, q))) - ly0) / (ly1 - ly0) * (FY1 - FY0); }
+    ctx.strokeStyle = 'rgba(' + ink + ',.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(FX0, FY0); ctx.lineTo(FX0, FY1); ctx.lineTo(FX1, FY1); ctx.stroke();
+    C.label(ctx, FX0, FY0 - 16, 'поток тепла против давления', 17, 'rgba(' + mut + ',.95)', 'left');
+    [16, 125, 1000].forEach(function (N) { C.label(ctx, X(N), FY1 + 22, String(N), 17, 'rgba(' + mut + ',.95)', 'center'); });
+    C.label(ctx, FX1, FY1 + 44, 'молекул в трубке', 17, 'rgba(' + mut + ',.95)', 'right');
+    C.label(ctx, FX1 - 4, FY1 - 30, 'наклонная: пролёт без ударов', 17, 'rgba(' + mut + ',.95)', 'right');
+    C.label(ctx, FX1 - 4, FY1 - 8, 'пунктир: κΔT/L', 17, 'rgba(' + mut + ',.95)', 'right');
+    ctx.save(); ctx.beginPath(); ctx.rect(FX0, FY0 - 4, FX1 - FX0 + 4, FY1 - FY0 + 4); ctx.clip();
+    GAZY.forEach(function (gz, k) {
+      var i, N;
+      /* пролёт без ударов: прямая, растёт с давлением; выше графика не рисуется */
+      ctx.strokeStyle = 'rgba(' + gz.cvet + ',.55)'; ctx.lineWidth = 1.4; ctx.beginPath();
+      for (i = 0; i <= 30; i++) {
+        N = NMIN * Math.pow(NMAXG / NMIN, i / 30);
+        var yk = FY1 - (Math.log(qKnudsen(gz.m, N)) - ly0) / (ly1 - ly0) * (FY1 - FY0);
+        if (i) ctx.lineTo(X(N), yk); else ctx.moveTo(X(N), yk);
+      }
+      ctx.stroke();
+      /* плато κΔT/L */
+      ctx.save(); ctx.setLineDash([6, 4]); ctx.strokeStyle = 'rgba(' + gz.cvet + ',.8)'; ctx.lineWidth = 1.4; ctx.beginPath();
+      ctx.moveTo(X(NMIN), Y(qPlato(gz.m, NMIN))); ctx.lineTo(X(NMAXG), Y(qPlato(gz.m, NMAXG))); ctx.stroke(); ctx.restore();
+      ctx.fillStyle = 'rgb(' + gz.cvet + ')';
+      S.tochki[k].forEach(function (p) {
+        if (p[0] === pokaz.N) return;
+        ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), 4.5, 0, 2 * Math.PI); ctx.fill();
+      });
+      var r = pokaz.gazy ? pokaz.gazy[k] : null;
+      if (r && r.q != null) {
+        ctx.strokeStyle = 'rgb(' + gz.cvet + ')'; ctx.lineWidth = 2.2;
+        ctx.beginPath(); ctx.arc(X(pokaz.N), Y(r.q), 6.5, 0, 2 * Math.PI); ctx.stroke();
+      }
+    });
+    ctx.restore();
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted, m = 'rgba(' + mut + ',.95)', q = pokaz;
+    if (q.N == null) return;
+    trubki(ctx, ink, mut);
+    profil(ctx, ink, mut);
+    potok(ctx, ink, mut);
+    var l = q.gazy[0], Y = 392, kOk = q.LnaLambda >= KL && l.k1 != null;
+    C.readout(ctx, 190, Y, 'ЛЁГКИЙ / ТЯЖЁЛЫЙ', num(q.ratio, 2), 'rgb(' + ink + ')');
+    C.label(ctx, 190, Y + 62, '√10 = 3,16', 17, m, 'right');
+    /* три средних показания только о лёгком газе: подпись над ними и цвет цифр */
+    C.label(ctx, 500, Y - 24, 'лёгкий газ: теплопроводность и поток', 17, 'rgb(' + GAZY[0].cvet + ')', 'center');
+    C.readout(ctx, 390, Y, 'СЧЁТ / ТЕОРИЯ', kOk ? num(l.k1 / l.k1Th, 2) : '—', 'rgb(' + GAZY[0].cvet + ')');
+    C.label(ctx, 390, Y + 62, !kOk ? 'наклона нет' : l.k1Err != null ? '± ' + num(l.k1Err / l.k1Th, 2) + ', твёрдые шары' : 'твёрдые шары', 17, m, 'right');
+    C.readout(ctx, 590, Y, 'СЧЁТ / МОДЕЛЬ ГЛАВЫ', kOk ? num(l.k1 / l.k1Gl, 1) : '—', 'rgb(' + GAZY[0].cvet + ')');
+    C.label(ctx, 590, Y + 62, 'с множителем ⅓', 17, m, 'right');
+    C.readout(ctx, 790, Y, 'ПОТОК / ПЛАТО', num(l.q != null ? l.q / l.qPlato : null, 2), 'rgb(' + GAZY[0].cvet + ')');
+    C.label(ctx, 790, Y + 62, 'плато κΔT/L', 17, m, 'right');
+    C.readout(ctx, 990, Y, 'ВРЕМЯ', num(q.t, 0), 'rgb(' + ink + ')');
+    C.label(ctx, 990, Y + 62, 'единиц модели', 17, m, 'right');
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* Для автопроверки: __demoSet({ dolya, seed }) пересоздаёт опыт и стирает
+     точки графика, __demoDavlenie(dolya) меняет давление, как кнопка;
+     __demoRun(T) считает T единиц времени без отрисовки по сетке DT_S;
+     __demoModel отдаёт модель и формулы сверки. */
+  window.__demoSet = function (o) { zanovo(o || {}); return pokaz; };
+  window.__demoDavlenie = function (d) { davlenie(d); return pokaz; };
+  window.__demoRun = function (T) {
+    var n = Math.round(T / DT_S);
+    for (var i = 0; i < n; i++) S.M.gazy.forEach(vyborka);
+    snyat(); return pokaz;
+  };
+  window.__demoModel = { G: G, get M() { return S.M; }, D: D, AA: AA, kap0: kap0, enskog: enskog, kapGl: kapGl,
+                         qPlato: qPlato, qKnudsen: qKnudsen, lamN: lamN, etaN: etaN, itogGaza: itogGaza };
+
+  function slova() {
+    var q = pokaz, A = function (x) { return '<span class="accent">' + x + '</span>'; }, l = q.gazy[0], t = q.gazy[1];
+    if (t.q == null || t.nBlok < 4)
+      return 'Пластина слева горячая, справа холодная. Молекула, ударившись о пластину, отлетает со скоростью, какую задаёт температура пластины, и тепло идёт через газ от горячей пластины к холодной. Сверху лёгкий газ, снизу вдесятеро тяжелее, как гелий (масса 4) и аргон (масса 40), шары одного размера. Поток пока устанавливается.';
+    var r = A(num(q.ratio, 2)) + (q.ratioErr != null ? ' ± ' + num(q.ratioErr, 2) : '');
+    if (q.LnaLambda >= KL)
+      return 'Профиль температуры у двух газов один, а тепла лёгкий переносит в ' + r + ' раза больше. Траектории у газов те же, но лёгкие молекулы проходят их в √10 = 3,16 раза быстрее. ' +
+        'Теплопроводность лёгкого газа по наклону профиля в толще на этом запуске ' + A(num(l.k1 / l.k1Th, 2)) + (l.k1Err != null ? ' ± ' + num(l.k1Err / l.k1Th, 2) : '') +
+        ' от теории твёрдых шаров. По многим запускам счёт выше теории на 8 %: у боковых стенок трубки шару не хватает соседей, ударов на 7 % меньше, и тепло идёт легче. ' +
+        'Модель главы с ⅓ даёт в ' + num(l.k1 / l.k1Gl, 1) + ' раза меньше счёта: у неё все молекулы летят с одной скоростью и после удара забывают направление, а тепло несут в основном быстрые. ' +
+        'У пластин температура газа скачет: отлетевшая молекула помнит температуру пластины на длине пробега, и поток через зазор ' + A(num(l.q / l.qPlato, 2)) + ' от κΔT/L.';
+    if (q.LnaLambda >= 1)
+      return 'Пробег ' + (q.LnaLambda >= 1.5 ? 'L/' + num(q.LnaLambda, 0) : 'сравним с зазором') + ': слои у пластин, где температура скачет, заняли заметную долю зазора, и поток ' + A(num(l.q / l.qPlato, 2)) +
+        ' от κΔT/L. Чем реже газ, тем ближе поток к наклонной прямой пролёта без ударов, а она растёт пропорционально давлению. Тепла лёгкий газ переносит в ' + r + ' раза больше, чем тяжёлый.';
+    return 'Пробег ' + num(1 / q.LnaLambda, 1) + ' L, больше зазора: молекулы летают от пластины к пластине почти без ударов, и профиль плоский. Каждая молекула переносит тепло от пластины к пластине сама, поэтому поток пропорционален числу молекул, то есть давлению, и составляет ' +
+      A(num(l.q / l.qKnudsen, 2)) + ' от счёта пролёта без ударов. На этом стоит сосуд Дьюара. Лёгкий газ и здесь переносит больше, на этом запуске в ' + A(num(q.ratio, 2)) +
+      ' раза. Но молекул в трубке всего ' + q.N + ', и средние от запуска к запуску гуляют сильно: отношение и через сто единиц времени на 10–15 %, а точка тяжёлого газа ложится иногда и выше наклонной прямой пролёта без ударов.';
+  }
+
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Давление:">
+          ${DOLI.map(function (dl) {
+            return html`<${C.Btn} active=${S.M.dolya === dl} onClick=${function () { davlenie(dl); }}>${dl === 1 ? '1' : '1/' + dl}<//>`;
+          })}
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${function () { zanovo(); }}>Заново<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Teplo);
+</script>
+</body>
+</html>

@@ -1,0 +1,1340 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Доска Гальтона</title>
+<link rel="stylesheet" href="../shared/demo.css">
+<style>
+/* Местные правила, как у «изотермы»: demo.css общий. Строка показаний
+   держит высоту самой длинной своей фразы: под видимым текстом лежит
+   невидимая фраза с наибольшими числами, жирным, то есть с запасом.
+   Без этого холст прыгал бы на строку, пока зёрна сыплются и числа
+   меняют длину. */
+.status.galton-status { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.galton-status > span, .galton-status::before { grid-area: 1 / 1; }
+.galton-status::before { visibility: hidden; font-weight: 600; content: attr(data-ten); }
+/* Буква l в подписях облака (?nedelya=13): курсив с засечками, чтобы не читалась как I. */
+.ob-l { font-family: 'Times New Roman', Times, Georgia, serif; font-style: italic; font-size: 1.1em; padding-right: .05em; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-12/">&larr; Неделя 12</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=doska-galtona"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ── адрес ─────────────────────────────────────────────────
+   ?nedelya=13 открывает облако блужданий тринадцатой недели (раздел в
+   конце файла). Параметр читается один раз при загрузке; ссылка возврата
+   и заголовок переписываются здесь же, у статической разметки неделя 12.
+   Любое другое значение, как и его отсутствие, оставляет доску Гальтона
+   двенадцатой недели прежней: генератор, гистограммы, рисунок, подписи и
+   рейка те же, код доски не тронут.
+   Внутри тринадцатой rezhim=matros открывает матроса (вычитка автора
+   24.11, раздел в самом конце файла), любое другое значение облако. */
+var NEDELYA13 = (function () {
+  try { return new URLSearchParams(location.search).get('nedelya') === '13'; }
+  catch (e) { return false; }
+})();
+var REZHIM13 = (function () {
+  try { return new URLSearchParams(location.search).get('rezhim') === 'matros' ? 'matros' : 'oblako'; }
+  catch (e) { return 'oblako'; }
+})();
+if (NEDELYA13) {
+  var vozvrat13 = document.querySelector('.demo-back');
+  if (vozvrat13) { vozvrat13.setAttribute('href', '/week-13/'); vozvrat13.innerHTML = '&larr; Неделя 13'; }
+  document.title = 'Облако блужданий';
+}
+
+/* ══════════════════ физика ══════════════════
+
+   Производство двенадцатой недели (бриф briefs/proizvodstvo12.md, раздел
+   «Демки: пять исполнителей», D5; опись briefs/lekciya12_demki_minuty.md,
+   §1.5; решения автора briefs/lekciya12_resheniya_ramki.md, п. 11). Блок
+   главы raspredelenie-gaussa, обёртка raspredeleniya/demka-doska-galtona.
+
+   МОДЕЛЬ. Зерно проходит n рядов и в каждом сдвигается на случайный шаг,
+   шаги независимы и одинаково распределены. Номер ячейки, куда зерно
+   падает, есть n/2 плюс сумма шагов; ячейка k собирает зёрна с суммой
+   в [k − ½, k + ½). Шаг задан одним из трёх законов, у всех среднее 0 и
+   дисперсия ¼ ячейки²:
+     ±½      налево или направо на полъячейки с вероятностью ½ (настоящая
+             доска со штырями); номер ячейки тогда биномиален, Bin(n, ½);
+     равномерный  шаг равномерен на [−a, a], a = √3/2 ≈ 0,866, дисперсия
+             a²/3 = ¼;
+     нормальный   шаг гауссов со средним 0 и σ = ½ (Бокс–Мюллер).
+   Поэтому у всех трёх законов дисперсия суммы n/4 и σ = √n/2 ячейки:
+   при 12 рядах 1,732. Кривая на гистограмме есть Гаусс той же дисперсии,
+   N·φ(x), где φ плотность нормального закона со средним n/2 и σ = √n/2
+   (ширина ячейки 1). Колокол выходит один при любом из трёх законов шага:
+   к Гауссу сходятся суммы независимых величин с конечной дисперсией.
+
+   СЛУЧАЙНЫЕ ЧИСЛА. Генератор mulberry32 с зерном seed (32-битная
+   арифметика, Math.imul); каждое зерно тратит n чисел (±½, равномерный)
+   или 2n (нормальный: u1, u2 на каждый шаг, z = √(−2 ln(1 − u1))·cos 2πu2,
+   синус отбрасывается). Поток один и тот же при любой порции подсыпки,
+   поэтому гистограмма первых N зёрен при данных n, законе и seed одна
+   и та же, сыплются ли зёрна по одному или сразу. На этом стоит сверка:
+   python (briefs/lekciya12_skripty/proizvodstvo/doska-galtona.py) тем же
+   генератором получает те же гистограммы до зерна.
+   Когда ползунок зёрен идёт вниз, демка не пересчитывает гистограмму:
+   на каждой ступени ZERNA подсыпка кладёт снимок (гистограмма, ушедшие
+   за край, суммы d и d²), откат берёт снимок и ставит генератор на
+   N-е зерно (mulberry32 с пропуском N·n или N·2n чисел). Снимок совпадает
+   с чистым счётом первых N зёрен, это проверяет hcheck.
+
+   ЧТО ПОКАЗЫВАЕТ СТРОКА. Центральная ячейка kц = ⌊n/2⌋. Гаусс ждёт в ней
+   N·pГ зёрен, где pГ = ∫ φ по ячейке [kц − ½, kц + ½] (Симпсон, 200
+   отрезков, ошибка меньше 10⁻¹⁰ при n ≥ 2; 32 отрезка давали 2·10⁻⁸ при
+   n = 2). При 12 рядах pГ = 0,2272. Нарисованная кривая N·φ(x) над
+   серединой ячейки стоит выше N·pГ: φ выпукла вверх у вершины. При двух
+   рядах φ(1) = 0,5642, pГ = 0,5205, бином 0,5: кривая над центральным
+   столбиком выше бинома на 12,8 %, а строка пишет −3,9 % (0,5/0,5205 − 1).
+   Обёртка называет обе меры.
+   Шум центра есть относительный разброс счёта в ячейке. Каждое зерно
+   попадает в неё с вероятностью p независимо от других, счёт биномиален,
+   и разброс √((1 − p)/(N p)). Здесь p вероятность ячейки по самому закону
+   шага: у ±½ биномиальная C(n, kц)/2ⁿ (0,2256 при 12 рядах), у
+   нормального pГ, у равномерного тоже pГ (точная, по Ирвину–Холлу,
+   0,2245 при 12 рядах; шум от этого меняется на 0,8 % своей величины).
+   При 12 рядах и шаге ±½ шум 18,5, 5,9 и 1,9 % при 100, 1000 и 10⁴
+   зёрнах, на экране «19», «6» и «2 %», как в главе (raspredelenie-gaussa:
+   19 и 2 %). Опись и бриф D5 пишут 21, 7 и 2 %: это пуассонова оценка
+   1/√(N p) без множителя 1 − p, она в state.shumPuasson.
+   Разброс по зёрнам σ = √(⟨d²⟩ − ⟨d⟩²), d = x − n/2, по всем упавшим
+   зёрнам, включая ушедшие за край картинки.
+
+   БИНОМ ПРОТИВ ГАУССА (state.binomOtGaussa, на экране не пишется).
+   max_k |C(n,k)/2ⁿ − φ(k)|, делённое на биномиальную вероятность
+   центральной ячейки: при 12 рядах 0,02103, то есть 2,1 % (опись: «не
+   больше чем на 2,1 % центральной ячейки»). Против вероятности ячейки
+   по Гауссу (интеграл, а не значение в середине) центр бинома ниже на
+   0,7 %: 0,2256 против 0,2272; это различимо только у сотни тысяч зёрен,
+   где шум 0,59 %. У равномерного шага центр ниже Гаусса на 1,2 %.
+
+   ЧИСЛА (python и этот код, hcheck на порту 49969): σ = 1,7321 при n = 12,
+   3,1623 при n = 40; binomOtGaussa 0,02103 при n = 12; pГ = 0,22717;
+   шум центра при шаге ±½ 0,1853, 0,0586, 0,0185 при 100, 1000, 10⁴
+   зёрнах; пуассонова оценка описи 0,2098, 0,0663, 0,0210.
+
+   КАРТИНКА. Ячейки на экране от kmin = min(0, ⌊n/2 − 4,5σ⌋) до n − kmin:
+   у закона ±½ крайние ячейки за доской пусты, у равномерного и
+   нормального туда изредка попадают зёрна. Зёрна за этими пределами
+   (у нормального закона при 12 рядах одно на миллион) считаются в
+   state.zaKraem и в разбросе. Пока зёрна сыплются, несколько из них летят
+   по доске своими настоящими путями; полёт только рисунок, в гистограмме
+   зерно учтено сразу. Темп подсыпки dN/dt = max(40, 3N) зёрен в секунду:
+   первые десятки по одному, дальше порядок за 0,77 с. */
+
+var ZERNA = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
+var ZERNA_STUPEN = {};
+ZERNA.forEach(function (v) { ZERNA_STUPEN[v] = true; });
+var RYADY_MIN = 2, RYADY_MAX = 40;
+var D_SHAGA = 0.25;                 /* дисперсия шага, ячейки² */
+var A_RAVN = Math.sqrt(3) / 2;      /* полуширина равномерного шага */
+var ZAKONY = ['pm', 'ravn', 'norm'];
+
+/* mulberry32: 32-битный генератор, равномерный на [0, 1). Состояние после
+   k чисел есть seed + k·0x6D2B79F5 по модулю 2³², поэтому генератор можно
+   поставить сразу на k-е число: skip = k. */
+function mulberry32(seed, skip) {
+  var a = ((seed | 0) + Math.imul(skip | 0, 0x6D2B79F5)) | 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    var t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shag(zakon, R) {
+  if (zakon === 'pm') return R() < 0.5 ? -0.5 : 0.5;
+  if (zakon === 'ravn') return (2 * R() - 1) * A_RAVN;
+  var u1 = R(), u2 = R();
+  return 0.5 * Math.sqrt(-2 * Math.log(1 - u1)) * Math.cos(2 * Math.PI * u2);
+}
+
+function sigmaTeor(n) { return Math.sqrt(n * D_SHAGA); }
+function kMin(n) { return Math.min(0, Math.floor(n / 2 - 4.5 * sigmaTeor(n))); }
+
+/* Плотность Гаусса со средним n/2 и σ = √n/2 в точке x (ячейки). */
+function phi(x, n) {
+  var s = sigmaTeor(n), d = (x - n / 2) / s;
+  return Math.exp(-d * d / 2) / (s * Math.sqrt(2 * Math.PI));
+}
+/* Вероятность ячейки k по Гауссу: интеграл φ по [k − ½, k + ½], Симпсон. */
+function pYachejki(k, n) {
+  var M = 200, h = 1 / M, s = phi(k - 0.5, n) + phi(k + 0.5, n);
+  for (var i = 1; i < M; i++) s += (i % 2 ? 4 : 2) * phi(k - 0.5 + i * h, n);
+  return s * h / 3;
+}
+/* Бином Bin(n, ½) рекуррентно. */
+function binom(n) {
+  var p = [Math.pow(2, -n)];
+  for (var k = 0; k < n; k++) p.push(p[k] * (n - k) / (k + 1));
+  return p;
+}
+/* Наибольшее отклонение бинома от Гаусса той же дисперсии в серединах
+   ячеек, в долях биномиальной вероятности центральной ячейки. */
+function binomOtGaussa(n) {
+  var p = binom(n), mx = 0, pc = 0;
+  for (var k = 0; k <= n; k++) { mx = Math.max(mx, Math.abs(p[k] - phi(k, n))); pc = Math.max(pc, p[k]); }
+  return mx / pc;
+}
+/* Вероятность центральной ячейки по закону шага (для шума): у ±½ бином,
+   у непрерывных законов Гаусс по ячейке. */
+function pCentra(n, zakon) {
+  var kc = Math.floor(n / 2);
+  return zakon === 'pm' ? binom(n)[kc] : pYachejki(kc, n);
+}
+/* Шум счёта центральной ячейки: счёт биномиален, √((1 − p)/(N p)). */
+function shumCentra(n, N, zakon) { var p = pCentra(n, zakon || 'pm'); return Math.sqrt((1 - p) / (N * p)); }
+/* Пуассонова оценка описи, 1/√(N pГ). */
+function shumPuasson(n, N) { return 1 / Math.sqrt(N * pYachejki(Math.floor(n / 2), n)); }
+
+/* Доска: n рядов, закон шага, зерно генератора. zerno(put) бросает одно
+   зерно; если дан массив put, в него ложатся положения после каждого ряда. */
+function Doska(n, zakon, seed) {
+  this.n = n; this.zakon = zakon; this.seed = seed;
+  this.R = mulberry32(seed);
+  this.kLo = kMin(n); this.kHi = n - this.kLo;
+  this.hist = [];
+  for (var k = this.kLo; k <= this.kHi; k++) this.hist.push(0);
+  this.zeren = 0; this.zaKraem = 0; this.s1 = 0; this.s2 = 0;
+  this.snimki = {};
+}
+/* Чисел генератора на зерно: n у ±½ и равномерного, 2n у нормального. */
+Doska.prototype.chiselNaZerno = function () { return this.zakon === 'norm' ? 2 * this.n : this.n; };
+/* Откат к первым N зёрнам по снимку на ступени ZERNA, без пересчёта:
+   гистограмма и суммы из снимка, генератор встаёт на N-е зерно. Дальше
+   подсыпка идёт тем же потоком, что и с нуля. Нет снимка: false. */
+Doska.prototype.otkatit = function (N) {
+  var s = this.snimki[N];
+  if (!s || N > this.zeren) return false;
+  this.hist = s.hist.slice(); this.zaKraem = s.zaKraem; this.s1 = s.s1; this.s2 = s.s2; this.zeren = N;
+  this.R = mulberry32(this.seed, N * this.chiselNaZerno());
+  return true;
+};
+Doska.prototype.zerno = function (put) {
+  var x = this.n / 2;
+  if (put) put.push(x);
+  for (var r = 0; r < this.n; r++) {
+    x += shag(this.zakon, this.R);
+    if (put) put.push(x);
+  }
+  var k = Math.floor(x + 0.5), d = x - this.n / 2;
+  if (k >= this.kLo && k <= this.kHi) this.hist[k - this.kLo]++;
+  else this.zaKraem++;
+  this.zeren++; this.s1 += d; this.s2 += d * d;
+  if (ZERNA_STUPEN[this.zeren])
+    this.snimki[this.zeren] = { hist: this.hist.slice(), zaKraem: this.zaKraem, s1: this.s1, s2: this.s2 };
+};
+
+function itogi(D) {
+  var n = D.n, N = D.zeren, kc = Math.floor(n / 2), pc = pYachejki(kc, n);
+  var m = N ? D.s1 / N : 0, s = N ? Math.sqrt(Math.max(0, D.s2 / N - m * m)) : 0;
+  var vC = D.hist[kc - D.kLo], zhdyot = N * pc;
+  return {
+    n: n, zakon: D.zakon, seed: D.seed, zeren: N, kLo: D.kLo, kHi: D.kHi,
+    hist: D.hist.slice(), zaKraem: D.zaKraem,
+    srednee: n / 2 + m, sigmaZeren: s, sigmaGaussa: sigmaTeor(n),
+    centr: { k: kc, zeren: vC, zhdyot: zhdyot, pYachejki: pc, otkl: N ? vC / zhdyot - 1 : 0 },
+    shum: N ? shumCentra(n, N, D.zakon) : null,
+    shumPuasson: N ? shumPuasson(n, N) : null,
+    binomOtGaussa: binomOtGaussa(n)
+  };
+}
+
+/* Чистый счёт для сверки: гистограмма первых N зёрен. */
+function gistogramma(n, zakon, N, seed) {
+  var D = new Doska(n, zakon, seed);
+  for (var i = 0; i < N; i++) D.zerno(null);
+  return itogi(D);
+}
+
+/* Русская запятая, настоящий минус, неразрывный пробел в тысячах. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+function tys(v) { return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+function znak(v, d) { var s = num(v, d); return v > 0 && s !== num(0, d) ? '+' + s : s; }
+/* ── конец чистой физики ── */
+
+var W = 1000, HGT = 460;
+var X0 = 30, X1 = 970;
+var Y_TOP = 92, Y_BOT = 200;        /* доска: первый ряд и выход */
+var YT = 232, YB = 420;             /* гистограмма: верх и ось */
+var CV_ZERNO = '94,170,255';        /* зёрна и столбики */
+var CV_GAUSS = '255,140,90';        /* кривая Гаусса */
+var OPIS = { pm: 'шаг ±½ ячейки', ravn: 'шаг равномерный от −0,87 до +0,87', norm: 'шаг нормальный с σ = ½' };
+var PODPIS = { pm: '±½', ravn: 'равномерный', norm: 'нормальный' };
+
+/* Длиннейшая фраза строки: держит её высоту (правило .galton-status). */
+var TEN = '100 000 зёрен, 40 рядов, шаг равномерный от −0,87 до +0,87. Разброс по зёрнам σ = 3,16, у Гаусса √n/2 = 3,16 ячейки. ' +
+  'В центральной ячейке 12 618 зёрен, Гаусс ждёт 12 618: отклонение −10,8 % при шуме около 10 %.';
+
+function Galton() {
+  var B = useRef(null);
+  if (!B.current) B.current = { n: 12, zakon: 'pm', iN: 3, seed: 1, D: null, dolg: 0, polety: [] };
+  var b = B.current;
+  if (!b.D) b.D = new Doska(b.n, b.zakon, b.seed);
+  var _t = useState(0), tik = _t[1];
+  function obnovit() { tik(function (x) { return x + 1; }); }
+
+  function cel() { return ZERNA[b.iN]; }
+  function sypletsya() { return b.D.zeren < cel(); }
+  function sostoyanie() {
+    var s = itogi(b.D);
+    s.N = cel(); s.sypletsya = sypletsya(); s.polety = b.polety.length;
+    return s;
+  }
+  window.__demoState = sostoyanie();
+
+  function dlitPoleta() { return 0.35 + 0.025 * b.n; }
+
+  /* Подсыпка: dN/dt = max(40, 3N) зёрен в секунду. Первое зерно
+     каждой порции летит по доске своими путями. */
+  function step(dt) {
+    var zhivye = false;
+    if (sypletsya()) {
+      var c = b.D.zeren;
+      b.dolg += Math.max(40 * dt, c * (Math.exp(3 * dt) - 1));
+      var m = Math.min(Math.floor(b.dolg), cel() - c);
+      b.dolg -= m;
+      for (var i = 0; i < m; i++) {
+        var put = i === 0 && b.polety.length < 30 ? [] : null;
+        b.D.zerno(put);
+        if (put) b.polety.push({ put: put, t: 0 });
+      }
+      if (!sypletsya()) b.dolg = 0;
+      zhivye = true;
+    }
+    if (b.polety.length) {
+      var T = dlitPoleta();
+      b.polety.forEach(function (p) { p.t += dt; });
+      b.polety = b.polety.filter(function (p) { return p.t < T; });
+      zhivye = true;
+    }
+    if (zhivye) { window.__demoState = sostoyanie(); obnovit(); }
+  }
+
+  function px(k) { var bw = (X1 - X0) / (b.D.kHi - b.D.kLo + 1); return X0 + (k - b.D.kLo + 0.5) * bw; }
+
+  function risDosku(ctx, tone) {
+    var n = b.n, dy = (Y_BOT - Y_TOP) / n, bw = (X1 - X0) / (b.D.kHi - b.D.kLo + 1);
+    var rp = C.clamp(Math.min(bw, dy) * 0.24, 2, 5);
+    for (var r = 0; r < n; r++) {
+      var y = Y_TOP + r * dy;
+      if (b.zakon === 'pm') {
+        ctx.fillStyle = 'rgba(' + tone.ink + ',.6)';
+        for (var j = 0; j <= r; j++) {
+          ctx.beginPath(); ctx.arc(px(n / 2 - r / 2 + j), y, rp, 0, 6.284); ctx.fill();
+        }
+      } else {
+        /* у непрерывного шага штырей нет: ряд отмечен чертой */
+        ctx.strokeStyle = 'rgba(' + tone.ink + ',.28)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(px(n / 2 - r / 2 - 0.5), y); ctx.lineTo(px(n / 2 + r / 2 + 0.5), y); ctx.stroke();
+      }
+    }
+    /* воронка над первым рядом */
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.55)'; ctx.lineWidth = 2;
+    var xc = px(n / 2);
+    ctx.beginPath(); ctx.moveTo(xc - 34, Y_TOP - 34); ctx.lineTo(xc - 9, Y_TOP - 12);
+    ctx.moveTo(xc + 34, Y_TOP - 34); ctx.lineTo(xc + 9, Y_TOP - 12); ctx.stroke();
+    /* летящие зёрна */
+    var T = dlitPoleta(), rz = 5;
+    b.polety.forEach(function (p) {
+      var s = p.t / T * (n + 1), x, y;
+      if (s < n) {
+        var r = Math.floor(s), f = s - r;
+        x = p.put[r] + (p.put[r + 1] - p.put[r]) * f;
+        y = Y_TOP + (r + f) * dy - rp - rz - Math.sin(Math.PI * f) * dy * 0.35;
+      } else {
+        x = p.put[n]; y = Y_BOT + (s - n) * (YT - Y_BOT);
+      }
+      var X = X0 + (x - b.D.kLo + 0.5) * bw;
+      C.glow(ctx, X, y, 14, CV_ZERNO, .4);
+      ctx.fillStyle = 'rgb(' + CV_ZERNO + ')';
+      ctx.beginPath(); ctx.arc(X, y, rz, 0, 6.284); ctx.fill();
+    });
+  }
+
+  function risGistogrammu(ctx, tone, S) {
+    var n = b.n, bw = (X1 - X0) / (S.kHi - S.kLo + 1), N = S.zeren;
+    var pik = phi(n / 2, n), mx = 0;
+    S.hist.forEach(function (v) { mx = Math.max(mx, v); });
+    var ymax = Math.max(1.25 * N * pik, 1.05 * mx, 1);
+    function yv(v) { return YB - v / ymax * (YB - YT); }
+    /* столбики */
+    S.hist.forEach(function (v, i) {
+      if (!v) return;
+      var x = X0 + i * bw, gap = Math.min(3, bw * 0.12);
+      ctx.fillStyle = 'rgba(' + CV_ZERNO + ',.5)';
+      ctx.fillRect(x + gap, yv(v), bw - 2 * gap, YB - yv(v));
+      ctx.fillStyle = 'rgba(' + CV_ZERNO + ',1)';
+      ctx.fillRect(x + gap, yv(v), bw - 2 * gap, 2);
+    });
+    /* центральная ячейка обведена */
+    var ic = S.centr.k - S.kLo, xc0 = X0 + ic * bw;
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.75)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(xc0 + 1, yv(S.hist[ic]) - 1, bw - 2, YB - yv(S.hist[ic]) + 1);
+    /* ось и номера ячеек */
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(X0, YB); ctx.lineTo(X1, YB); ctx.stroke();
+    var shagi = [1, 2, 5, 10], st = 1;
+    for (var q = 0; q < shagi.length; q++) { st = shagi[q]; if ((n + 1) / st <= 12) break; }
+    for (var k = 0; k <= n; k += st)
+      C.label(ctx, px(k), YB + 24, String(k), 17, 'rgba(' + tone.muted + ',.95)');
+    if (!N) return;
+    /* Гаусс той же дисперсии */
+    ctx.strokeStyle = 'rgb(' + CV_GAUSS + ')'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (var i = 0; i <= 400; i++) {
+      var xk = S.kLo - 0.5 + i / 400 * (S.kHi - S.kLo + 1), X = X0 + (xk - S.kLo + 0.5) * bw, Y = yv(N * phi(xk, n));
+      if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+    }
+    ctx.stroke();
+    /* σ отрезком от середины на высоте кривой при отклонении σ */
+    var sg = S.sigmaGaussa, ys = yv(N * phi(n / 2 + sg, n)), xa = px(n / 2), xb = px(n / 2 + sg);
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.9)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(xa, ys); ctx.lineTo(xb, ys);
+    ctx.moveTo(xa, ys - 6); ctx.lineTo(xa, ys + 6); ctx.moveTo(xb, ys - 6); ctx.lineTo(xb, ys + 6); ctx.stroke();
+    C.label(ctx, xb + 8, ys + 6, 'σ', 19, 'rgb(' + tone.ink + ')', 'left');
+    /* легенда */
+    C.label(ctx, X1, YT - 6, 'Гаусс той же дисперсии', 17, 'rgb(' + CV_GAUSS + ')', 'right');
+    C.label(ctx, X0, YT - 6, 'зёрна по ячейкам', 17, 'rgb(' + CV_ZERNO + ')', 'left');
+  }
+
+  /* Кадр считает показания заново: __demoTick в скрытой вкладке двигает
+     подсыпку и рисует раньше, чем React перерисует разметку. */
+  function draw(ctx) {
+    var tone = C.tones(ctx), S = sostoyanie();
+    window.__demoState = S;
+    risDosku(ctx, tone);
+    risGistogrammu(ctx, tone, S);
+    C.readout(ctx, 250, 26, 'ЗЁРЕН', tys(S.zeren), 'rgb(' + tone.accent + ')');
+    C.readout(ctx, 990, 26, 'σ ПО ЗЁРНАМ / ГАУССА', S.zeren > 1 ? num(S.sigmaZeren, 2) + ' / ' + num(S.sigmaGaussa, 2) : '—', 'rgb(' + tone.ink + ')');
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+  function zanovo(n, zakon, seed) {
+    b.n = n; b.zakon = zakon; b.seed = seed;
+    b.D = new Doska(n, zakon, seed); b.dolg = 0; b.polety = [];
+  }
+  function postavitRyady(v) {
+    var n = Math.round(C.clamp(v, RYADY_MIN, RYADY_MAX));
+    if (n !== b.n) { zanovo(n, b.zakon, b.seed); obnovit(); }
+  }
+  function postavitZerna(v) {
+    var i = Math.round(C.clamp(v, 0, ZERNA.length - 1));
+    if (i === b.iN) return;
+    /* меньше зёрен: те же первые N сразу, без полёта, по снимку */
+    if (ZERNA[i] < b.D.zeren) umenshit(ZERNA[i]);
+    b.iN = i; obnovit();
+  }
+  function umenshit(N) {
+    if (!b.D.otkatit(N)) {
+      zanovo(b.n, b.zakon, b.seed);
+      for (var j = 0; j < N; j++) b.D.zerno(null);
+    }
+    b.dolg = 0; b.polety = [];
+  }
+  function postavitZakon(z) { if (z !== b.zakon) { zanovo(b.n, z, b.seed); obnovit(); } }
+  function eshchyo() { zanovo(b.n, b.zakon, b.seed + 1); obnovit(); }
+
+  /* Для автопроверки: __demoSet({ n, zakon, N, seed, srazu }) ставит ручки;
+     srazu: true досыпает до N без анимации. __demoModel даёт счёт. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    var n = o.n != null ? Math.round(C.clamp(o.n, RYADY_MIN, RYADY_MAX)) : b.n;
+    var z = o.zakon != null && ZAKONY.indexOf(o.zakon) >= 0 ? o.zakon : b.zakon;
+    var sd = o.seed != null ? o.seed : b.seed;
+    if (o.N != null) {
+      var best = 0;
+      ZERNA.forEach(function (v, i) { if (Math.abs(Math.log(v / o.N)) < Math.abs(Math.log(ZERNA[best] / o.N))) best = i; });
+      b.iN = best;
+    }
+    if (n !== b.n || z !== b.zakon || sd !== b.seed || o.zanovo) zanovo(n, z, sd);
+    else if (cel() < b.D.zeren) umenshit(cel());
+    if (o.srazu) { while (b.D.zeren < cel()) b.D.zerno(null); b.polety = []; }
+    window.__demoState = sostoyanie();
+    obnovit();
+    return window.__demoState;
+  };
+  window.__demoModel = { mulberry32: mulberry32, shag: shag, phi: phi, pYachejki: pYachejki, binom: binom,
+                         binomOtGaussa: binomOtGaussa, pCentra: pCentra, shumCentra: shumCentra, shumPuasson: shumPuasson, sigmaTeor: sigmaTeor, kMin: kMin,
+                         gistogramma: gistogramma, konst: { ZERNA: ZERNA, RYADY_MIN: RYADY_MIN, RYADY_MAX: RYADY_MAX,
+                         D_SHAGA: D_SHAGA, A_RAVN: A_RAVN } };
+
+  /* ── строка показаний ── */
+  function slova(S) {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    if (!S.zeren) return 'Зёрна сыплются: ' + S.n + ' ' + C.plural(S.n, 'ряд', 'ряда', 'рядов') + ', ' + OPIS[S.zakon] + '.';
+    var t = tys(S.zeren) + ' ' + C.plural(S.zeren, 'зерно', 'зерна', 'зёрен') + ', ' + S.n + ' ' + C.plural(S.n, 'ряд', 'ряда', 'рядов') +
+      ', ' + OPIS[S.zakon] + '. ';
+    if (S.zeren > 1)
+      t += 'Разброс по зёрнам σ = ' + num(S.sigmaZeren, 2) + ', у Гаусса √n/2 = ' + num(S.sigmaGaussa, 2) + ' ячейки. ';
+    var c = S.centr;
+    t += 'В центральной ячейке ' + tys(c.zeren) + ' ' + C.plural(c.zeren, 'зерно', 'зерна', 'зёрен') + ', Гаусс ждёт ' + tys(Math.round(c.zhdyot)) +
+      ': отклонение ' + A(znak(100 * c.otkl, 1) + ' %') + ' при шуме около ' + num(100 * S.shum, S.shum < 0.0095 ? 1 : 0) + ' %.';
+    return t;
+  }
+
+  var S = window.__demoState;
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Slider} label="Рядов:" min=${RYADY_MIN} max=${RYADY_MAX} step=${1} value=${b.n}
+                     onChange=${postavitRyady} display=${String(b.n)} />
+        <${C.Slider} label="Зёрен:" min=${0} max=${ZERNA.length - 1} step=${1} value=${b.iN}
+                     onChange=${postavitZerna} display=${tys(cel())} />
+        <${C.Group} label="Шаг:">
+          ${ZAKONY.map(function (z) {
+            return html`<${C.Btn} key=${z} active=${b.zakon === z} onClick=${function () { postavitZakon(z); }}>${PODPIS[z]}<//>`;
+          })}
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${eshchyo}>Ещё раз<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <div class="status galton-status" data-ten=${TEN}>
+        <span dangerouslySetInnerHTML=${{ __html: slova(S) }}></span>
+      </div>
+    </div>`;
+}
+
+/* ══════════════════ добавка тринадцатой недели: ?nedelya=13 ══════════════════
+
+   Облако блужданий. Производство тринадцатой недели (бриф
+   briefs/proizvodstvo13.md, раздел «Демки: два исполнителя», D2; опись
+   briefs/lekciya13_demki_minuty.md, §1.5, карточка 2; решения автора
+   briefs/lekciya13_resheniya_ramki.md, п. 11). Обёртка главы
+   yavleniya-perenosa/demka-oblako-bluzhdanij (src с ?nedelya=13), место у
+   zakon-ejnshtejna-smoluhovskogo. Отчёт
+   briefs/proizvodstvo13_demka-oblako-bluzhdanij_REPORT.md.
+
+   МОДЕЛЬ. K точек (500–10 000) выходят из одного места. За шаг τ каждая
+   точка сдвигается независимо от других и от своих прежних шагов:
+     в случайную сторону  на √2·l в направлении φ, равномерном на [0, 2π);
+     ±l по осям           на ±l по x и отдельно на ±l по y, каждое с
+                          вероятностью ½ (по каждой оси доска Гальтона
+                          двенадцатой с шагом 2l вместо ячейки).
+   У обоих законов средний квадрат шага по оси l², поэтому D = l²/2τ и
+   после N шагов ⟨x²⟩ = Nl² = 2Dt, ⟨r²⟩ = ⟨x²⟩ + ⟨y²⟩ = 2Nl² = 4Dt.
+   Счёт идёт в единицах l и τ; масштаб только переводит их в метры и
+   секунды, облако от него не меняется.
+
+   СЛУЧАЙНЫЕ ЧИСЛА. mulberry32 доски с зерном seed (по умолчанию 1). На
+   шаге точки идут по порядку номеров; «в случайную сторону» тратит одно
+   число на точку (φ = 2π·u), «по осям» два (сначала x, потом y, знак
+   минус при u < ½). Поток один при любом темпе показа: состояние после N
+   шагов при данных K, законе и seed одно и то же. Python
+   (briefs/lekciya13_skripty/proizvodstvo/oblako.py) тем же генератором
+   получает те же суммы и счёты: у решётки до точки, у случайной стороны
+   до 10⁻¹² (cos и sin двух библиотек расходятся в последнем бите).
+
+   ЧТО СЧИТАЕТСЯ. ⟨r²⟩ и ⟨x²⟩ по всем точкам от места старта. Круг на
+   экране радиусом √⟨r²⟩ самого облака; доля точек внутри, r² ≤ ⟨r²⟩,
+   против 1 − 1/e = 0,632: у гаусса на плоскости r² распределён
+   показательно со средним ⟨r²⟩, и P(r² ≤ ⟨r²⟩) = 1 − 1/e при любом t.
+   Для сверки с описью state.vnutri4Dt считает точки внутри круга √(4Dt)
+   по теории, r² ≤ 2N. Профиль вдоль x: столбики шириной w, чётное число
+   l, ближайшее к σ/4 (σ = √N l), не меньше 2l; столбик j берёт
+   [(j − ½)w, (j + ½)w). Полуоткрытый столбик ширины 2m содержит m узлов
+   решётки каждой чётности, поэтому у шага по осям столбики не рябят.
+   Кривая K·w·φ(x) с φ гауссом дисперсии 2Dt, то есть
+   N₀e^{−x²/4Dt}/√(4πDt) на ширину столбика. Центральный столбик: Гаусс
+   ждёт K·p, p интеграл φ по столбику (Симпсон, 200 отрезков); шум счёта
+   √((1 − p)/(Kp)).
+
+   МАСШТАБЫ (python, oblako.py, раздел Б). Прогон 1000 шагов, время
+   прогона T, τ = T/1000, l = √(2Dτ).
+     азот при 300 К, самодиффузия D = 2,11·10⁻⁵ м²/с (NIST TN 2279,
+       корреляция при 1 атм, как в главе), T = 1 с: τ = 1 мс,
+       l = 0,205 мм; за секунду √(4Dt) = 9,19 мм, по оси √(2Dt) = 6,50 мм;
+     медный купорос в воде, D = 0,85·10⁻⁹ м²/с (как в teplovoj-front и
+       ris-tri-probirki), T = 10 суток: τ = 864 с, l = 1,21 мм; за десять
+       суток √(4Dt) = 5,42 см, по оси √(2Dt) = 3,83 см (глава: 3,8 см);
+     крупинка радиусом 0,212 мкм в воде при 20 °C (крупинка Перрена
+       двенадцатой), D = kT/6πηr = 1,011·10⁻¹² м²/с при η = 1,0016 мПа·с,
+       T = 30 с: τ = 30 мс; за 30 с √(4Dt) = 11,0 мкм, по оси 7,79 мкм
+       (рамка и свод С10: 7,8 мкм).
+   Шаг демки крупнее удара молекулы: у азота в миллисекунде около семи
+   миллионов ударов. Сумма многих шагов снова шаг с той же дисперсией на
+   единицу времени, поэтому D и облако от этого не меняются.
+
+   ЧИСЛА (oblako.py, раздел А, numpy, 200 000 точек). Внутри круга
+   √⟨r²⟩ после 10, 40, 100, 400, 1000 шагов в случайную сторону 0,624;
+   0,630; 0,630; 0,632; 0,631 при 1 − 1/e = 0,632. У шага по осям r²
+   целые, и доля прыгает, смотря по тому, лёг ли круг чуть внутрь или
+   чуть наружу целого кольца узлов: при 10 шагах 0,55 или 0,74, к 400
+   шагам 0,629–0,636 (опись с кругом √(4Dt) и 4000 точек: 0,744; 0,653;
+   0,628; 0,629 после 10, 40, 100, 400). Поэтому показ открывается шагом
+   в случайную сторону. Шум центрального столбика ширины около σ/4 при
+   1000 шагах (w = 8l, p = 0,1007): 13,4 % у 500 точек, 6,7 % у 2000,
+   3,0 % у 10 000 (опись: 13,5; 6,7; 3,0 %).
+
+   ПОКАЗ. 25 шагов в секунду, прогон 1000 шагов за 40 с, потом облако
+   стоит. Круг растёт как √t: за первую секунду до 16 пикселей, к концу
+   до 100. Смена масштаба переписывает подписи и не трогает облако;
+   смена числа точек и закона начинает заново тем же зерном, «Заново»
+   берёт следующее зерно.
+
+   Итоговый аудит 23.11 (briefs/audit13_pravki_D.md): масштаб «капля
+   тумана» убран, на его месте «купорос». Табло писало D капли,
+   то есть ответ задачи zadacha-yp-tuman (access: student), а строка-тень
+   OB_TEN давала его же через 4Dt за 1000 шагов. Купорос берёт D и десять
+   суток пробирок входа недели. */
+
+var OB_TOCHEK = [500, 1000, 2000, 5000, 10000];
+var OB_SHAGOV = 1000;                /* шагов за прогон */
+var OB_TEMP = 25;                    /* шагов в секунду экрана */
+var OB_ZAKONY = ['napr', 'osi'];
+var OB_PODPIS = { napr: 'в случайную сторону', osi: '±l по осям' };
+/* То же разметкой: рубленый шрифт рейки рисует строчную l как заглавную I,
+   поэтому l идёт курсивом с засечками (правило .ob-l в шапке). Текст
+   узлов тот же, что в OB_PODPIS. */
+var OB_PODPIS_HTML = { napr: 'в случайную сторону', osi: '±<i class="ob-l">l</i> по осям' };
+var OB_IZNACH = 1 - Math.exp(-1);    /* доля внутри круга у гаусса */
+var OB_SHKALY = ['azot', 'kuporos', 'krupinka'];
+/* m: метров в единице длины подписей; sT: секунд в единице времени. */
+var OB_SHKALA = {
+  azot: { knopka: 'азот', D: 2.11e-5, T: 1, ed: 'мм', m: 1e-3, edT: 'с', sT: 1, dT: 2,
+          Dt: 'D = 2,1·10⁻⁵ м²/с', ist: 'азот при 300 К, NIST TN 2279' },
+  kuporos: { knopka: 'купорос', D: 0.85e-9, T: 864000, ed: 'см', m: 1e-2, edT: 'сут', sT: 86400, dT: 1,
+             Dt: 'D = 0,85·10⁻⁹ м²/с', ist: 'медный купорос в воде' },
+  krupinka: { knopka: 'крупинка в воде', D: 1.011e-12, T: 30, ed: 'мкм', m: 1e-6, edT: 'с', sT: 1, dT: 1,
+              Dt: 'D = 1,0·10⁻¹² м²/с', ist: 'крупинка 0,21 мкм в воде' }
+};
+
+/* Облако: K точек в начале координат, шаг за шагом. */
+function Oblako(K, zakon, seed) {
+  this.K = K; this.zakon = zakon; this.seed = seed;
+  this.R = mulberry32(seed);
+  this.x = new Float64Array(K); this.y = new Float64Array(K);
+  this.shagov = 0; this.x2s = [0]; this.y2s = [0]; this.r2s = [0];
+}
+Oblako.prototype.shag = function () {
+  var R = this.R, x = this.x, y = this.y, K = this.K, i, f, sx = 0, sy = 0;
+  if (this.zakon === 'osi') {
+    for (i = 0; i < K; i++) { x[i] += R() < 0.5 ? -1 : 1; y[i] += R() < 0.5 ? -1 : 1; }
+  } else {
+    for (i = 0; i < K; i++) { f = 2 * Math.PI * R(); x[i] += Math.SQRT2 * Math.cos(f); y[i] += Math.SQRT2 * Math.sin(f); }
+  }
+  for (i = 0; i < K; i++) { sx += x[i] * x[i]; sy += y[i] * y[i]; }
+  this.shagov++;
+  this.x2s.push(sx / K); this.y2s.push(sy / K); this.r2s.push((sx + sy) / K);
+};
+
+/* Ширина столбика профиля в l: чётное число, ближайшее к σ/4, σ = √N. */
+function obShirina(N) { return Math.max(2, 2 * Math.round(Math.sqrt(N) / 8)); }
+function obPhi(x, s) { return Math.exp(-x * x / (2 * s * s)) / (s * Math.sqrt(2 * Math.PI)); }
+/* Интеграл гаусса с σ = s по [a, b], Симпсон. */
+function obPBin(a, b, s) {
+  var M = 200, h = (b - a) / M, r = obPhi(a, s) + obPhi(b, s);
+  for (var i = 1; i < M; i++) r += (i % 2 ? 4 : 2) * obPhi(a + i * h, s);
+  return r * h / 3;
+}
+
+/* Показания в единицах l и τ; перевод в метры делает масштаб. */
+function obItogi(O) {
+  var N = O.shagov, K = O.K, x = O.x, y = O.y, i, q;
+  var r2 = O.r2s[N], vnutri = 0, vnutri4Dt = 0;
+  for (i = 0; i < K; i++) {
+    q = x[i] * x[i] + y[i] * y[i];
+    if (q <= r2) vnutri++;
+    if (q <= 2 * N) vnutri4Dt++;
+  }
+  var s = {
+    K: K, zakon: O.zakon, seed: O.seed, steps: N,
+    r2: r2, r2theory: 2 * N, x2: O.x2s[N], y2: O.y2s[N], x2theory: N,
+    vnutriChislo: vnutri, inside: N ? vnutri / K : null, insideGauss: OB_IZNACH,
+    vnutri4DtChislo: vnutri4Dt, vnutri4Dt: N ? vnutri4Dt / K : null,
+    hist: null
+  };
+  if (N) {
+    var sg = Math.sqrt(N), w = obShirina(N), J = Math.ceil(4 * sg / w + 0.5), counts = [], za = 0, j;
+    for (j = -J; j <= J; j++) counts.push(0);
+    for (i = 0; i < K; i++) {
+      j = Math.floor(x[i] / w + 0.5);
+      if (j >= -J && j <= J) counts[j + J]++; else za++;
+    }
+    var p = obPBin(-w / 2, w / 2, sg);
+    s.hist = { w: w, J: J, counts: counts, zaKraem: za, sigma: sg,
+               centr: { chislo: counts[J], zhdyot: K * p, p: p, otkl: counts[J] / (K * p) - 1, shum: Math.sqrt((1 - p) / (K * p)) } };
+  }
+  return s;
+}
+
+/* Перевод в физические единицы масштаба sh. */
+function obFizika(S, sh) {
+  var M = OB_SHKALA[sh], tau = M.T / OB_SHAGOV, l = Math.sqrt(2 * M.D * tau), t = S.steps * tau;
+  return { scale: sh, D: M.D, T: M.T, tau: tau, l: l, t: t,
+           sqrtR2: Math.sqrt(S.r2) * l, sqrt4Dt: Math.sqrt(4 * M.D * t), sigmaX: Math.sqrt(2 * M.D * t),
+           r2m2: S.r2 * l * l, r2theoryM2: 4 * M.D * t };
+}
+
+/* Две и три значащие цифры: подписи читают с задних рядов. */
+function ob2(v) { return num(v, v >= 10 ? 0 : v >= 1 ? 1 : 2); }
+function ob3(v) { return num(v, v >= 100 ? 0 : v >= 10 ? 1 : v >= 1 ? 2 : 3); }
+
+var OB_PX0 = 20, OB_PY0 = 14, OB_PS = 432;              /* панель облака */
+var OB_CX = OB_PX0 + OB_PS / 2, OB_CY = OB_PY0 + OB_PS / 2;
+var OB_PX = 100 / Math.sqrt(2 * OB_SHAGOV);              /* пикселей на l: круг к концу 100 px */
+var OB_GX0 = 525, OB_GX1 = 975;                          /* графики справа */
+var OB_PT = 112, OB_PB = 250;                            /* профиль */
+var OB_MT = 312, OB_MB = 418;                            /* ⟨x²⟩ от t */
+var CV_VNE = '150,160,190';                              /* точки вне круга */
+
+var OB_TEN = '10 000 точек, 1000 шагов по 864 с, шаг в случайную сторону. На плоскости ⟨r²⟩ = 29,4 см² при 4Dt = 29,4 см², ' +
+  'внутри круга радиусом √⟨r²⟩ 63,2 % точек, у Гаусса 63,2 %.';
+
+function OblakoDemka(p) {
+  var B = useRef(null);
+  if (!B.current) B.current = { K: 2000, zakon: 'napr', seed: 1, sh: 'azot', cel: OB_SHAGOV, O: null, dolg: 0 };
+  var b = B.current;
+  if (!b.O) b.O = new Oblako(b.K, b.zakon, b.seed);
+  var _t = useState(0), tik = _t[1];
+  function obnovit() { tik(function (x) { return x + 1; }); }
+
+  function idet() { return b.O.shagov < b.cel; }
+  function sostoyanie() {
+    var S = obItogi(b.O), F = obFizika(S, b.sh);
+    S.nedelya = 13; S.cel = b.cel; S.idet = idet();
+    for (var k in F) S[k] = F[k];
+    return S;
+  }
+  window.__demoState = sostoyanie();
+
+  function step(dt) {
+    if (!idet()) { b.dolg = 0; return; }
+    b.dolg += OB_TEMP * dt;
+    var m = Math.min(Math.floor(b.dolg), b.cel - b.O.shagov);
+    b.dolg -= m;
+    for (var i = 0; i < m; i++) b.O.shag();
+    if (m) { window.__demoState = sostoyanie(); obnovit(); }
+  }
+
+  function risOblako(ctx, tone, S) {
+    var O = b.O, K = O.K, x = O.x, y = O.y, M = OB_SHKALA[b.sh];
+    ctx.save();
+    ctx.beginPath(); ctx.rect(OB_PX0, OB_PY0, OB_PS, OB_PS); ctx.clip();
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.25)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(OB_PX0 + 0.75, OB_PY0 + 0.75, OB_PS - 1.5, OB_PS - 1.5);
+    var rr = S.steps ? S.r2 : 0, a = K <= 1000 ? 3.4 : K <= 2000 ? 3 : K <= 5000 ? 2.4 : 2, h = a / 2, i, q;
+    ctx.fillStyle = 'rgba(' + CV_VNE + ',.6)';
+    for (i = 0; i < K; i++) {
+      q = x[i] * x[i] + y[i] * y[i];
+      if (q > rr) ctx.fillRect(OB_CX + x[i] * OB_PX - h, OB_CY - y[i] * OB_PX - h, a, a);
+    }
+    ctx.fillStyle = 'rgba(' + CV_ZERNO + ',.85)';
+    for (i = 0; i < K; i++) {
+      q = x[i] * x[i] + y[i] * y[i];
+      if (q <= rr) ctx.fillRect(OB_CX + x[i] * OB_PX - h, OB_CY - y[i] * OB_PX - h, a, a);
+    }
+    /* место старта */
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.8)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(OB_CX - 7, OB_CY); ctx.lineTo(OB_CX + 7, OB_CY);
+    ctx.moveTo(OB_CX, OB_CY - 7); ctx.lineTo(OB_CX, OB_CY + 7); ctx.stroke();
+    /* круг радиусом √⟨r²⟩ и радиус к нему */
+    if (S.steps) {
+      var R = Math.sqrt(S.r2) * OB_PX;
+      ctx.strokeStyle = 'rgba(' + tone.ink + ',.95)'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(OB_CX, OB_CY, R, 0, 6.284); ctx.stroke();
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(OB_CX, OB_CY); ctx.lineTo(OB_CX + R * 0.7071, OB_CY + R * 0.7071); ctx.stroke();
+      C.label(ctx, OB_CX + R * 0.7071 + 8, OB_CY + R * 0.7071 + 22, '√⟨r²⟩', 19, 'rgb(' + tone.ink + ')', 'left');
+    }
+    ctx.restore();
+    C.label(ctx, OB_PX0 + 12, OB_PY0 + 28, 'на плоскости', 19, 'rgb(' + tone.ink + ')', 'left');
+    C.label(ctx, OB_PX0 + OB_PS - 12, OB_PY0 + 28, M.Dt, 17, 'rgb(' + tone.ink + ')', 'right');
+    C.label(ctx, OB_PX0 + OB_PS - 12, OB_PY0 + 50, M.ist, 17, 'rgba(' + tone.muted + ',.95)', 'right');
+    /* линейка: круглая длина около четверти панели */
+    var lm = S.l / M.m, cel = OB_PS / 4 / OB_PX * lm, st = Math.pow(10, Math.floor(Math.log10(cel))), dl = st;
+    [1, 2, 5, 10].forEach(function (k) { if (k * st <= cel * 1.3) dl = k * st; });
+    var L = dl / lm * OB_PX, yl = OB_PY0 + OB_PS - 18, xl = OB_PX0 + 16;
+    ctx.strokeStyle = 'rgb(' + tone.ink + ')'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(xl, yl); ctx.lineTo(xl + L, yl);
+    ctx.moveTo(xl, yl - 6); ctx.lineTo(xl, yl + 6); ctx.moveTo(xl + L, yl - 6); ctx.lineTo(xl + L, yl + 6); ctx.stroke();
+    C.label(ctx, xl + L + 10, yl + 6, num(dl, dl < 1 ? (dl < 0.1 ? 2 : 1) : 0) + ' ' + M.ed, 17, 'rgb(' + tone.ink + ')', 'left');
+  }
+
+  function risProfil(ctx, tone, S) {
+    var H = S.hist, xc = (OB_GX0 + OB_GX1) / 2, half = (OB_GX1 - OB_GX0) / 2;
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(OB_GX0, OB_PB); ctx.lineTo(OB_GX1, OB_PB); ctx.stroke();
+    C.label(ctx, OB_GX0, OB_PT - 10, 'точки по x', 17, 'rgb(' + CV_ZERNO + ')', 'left');
+    C.label(ctx, OB_GX1, OB_PT - 10, 'Гаусс с ⟨x²⟩ = 2Dt', 17, 'rgb(' + CV_GAUSS + ')', 'right');
+    if (!H) return;
+    var sg = H.sigma, K = S.K, w = H.w, span = 4.4 * sg;
+    function X(v) { return xc + v / span * half; }
+    var mx = 0;
+    H.counts.forEach(function (v) { mx = Math.max(mx, v); });
+    var ymax = Math.max(1.2 * K * w * obPhi(0, sg), 1.05 * mx, 1);
+    function Y(v) { return OB_PB - v / ymax * (OB_PB - OB_PT); }
+    H.counts.forEach(function (v, i) {
+      if (!v) return;
+      var j = i - H.J, x0 = X((j - 0.5) * w), x1 = X((j + 0.5) * w), gap = Math.min(2, (x1 - x0) * 0.12);
+      if (x1 < OB_GX0 || x0 > OB_GX1) return;
+      x0 = Math.max(x0, OB_GX0); x1 = Math.min(x1, OB_GX1);
+      ctx.fillStyle = 'rgba(' + CV_ZERNO + ',.5)';
+      ctx.fillRect(x0 + gap, Y(v), x1 - x0 - 2 * gap, OB_PB - Y(v));
+      ctx.fillStyle = 'rgb(' + CV_ZERNO + ')';
+      ctx.fillRect(x0 + gap, Y(v), x1 - x0 - 2 * gap, 2);
+    });
+    ctx.strokeStyle = 'rgb(' + CV_GAUSS + ')'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (var i = 0; i <= 300; i++) {
+      var v = -span + 2 * span * i / 300, yy = Y(K * w * obPhi(v, sg));
+      if (i) ctx.lineTo(X(v), yy); else ctx.moveTo(X(v), yy);
+    }
+    ctx.stroke();
+    /* σ = √(2Dt) отрезком от середины */
+    var ys = Y(K * w * obPhi(sg, sg)), xa = X(0), xb = X(sg);
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.9)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(xa, ys); ctx.lineTo(xb, ys);
+    ctx.moveTo(xa, ys - 6); ctx.lineTo(xa, ys + 6); ctx.moveTo(xb, ys - 6); ctx.lineTo(xb, ys + 6); ctx.stroke();
+    var M = OB_SHKALA[b.sh];
+    C.label(ctx, xb + 8, ys + 6, '√(2Dt) = ' + ob2(S.sigmaX / M.m) + ' ' + M.ed, 17, 'rgb(' + tone.ink + ')', 'left');
+  }
+
+  function risKvadrat(ctx, tone, S) {
+    var M = OB_SHKALA[b.sh], O = b.O, ymax = 1.15 * OB_SHAGOV;
+    function X(n) { return OB_GX0 + n / OB_SHAGOV * (OB_GX1 - OB_GX0); }
+    function Y(v) { return OB_MB - v / ymax * (OB_MB - OB_MT); }
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(OB_GX0, OB_MT - 4); ctx.lineTo(OB_GX0, OB_MB); ctx.lineTo(OB_GX1, OB_MB); ctx.stroke();
+    /* подписи осей: время и ⟨x²⟩ в конце прогона */
+    [0, 0.5, 1].forEach(function (f) {
+      var v = f * M.T / M.sT;
+      C.label(ctx, X(f * OB_SHAGOV), OB_MB + 22, f ? num(v, v === Math.round(v) ? 0 : 1) + ' ' + M.edT : '0', 17,
+              'rgba(' + tone.muted + ',.95)', f === 1 ? 'right' : f ? 'center' : 'left');
+    });
+    var x2kon = 2 * M.D * M.T / (M.m * M.m);
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.3)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(OB_GX0, Y(OB_SHAGOV)); ctx.lineTo(OB_GX1, Y(OB_SHAGOV)); ctx.stroke();
+    C.label(ctx, OB_GX0 + 8, Y(OB_SHAGOV) - 8, ob2(x2kon) + ' ' + M.ed + '²', 17, 'rgba(' + tone.muted + ',.95)', 'left');
+    C.label(ctx, OB_GX0, OB_MT - 14, '⟨x²⟩', 17, 'rgb(' + CV_ZERNO + ')', 'left');
+    C.label(ctx, OB_GX1, OB_MT - 14, 'прямая 2Dt', 17, 'rgb(' + CV_GAUSS + ')', 'right');
+    ctx.strokeStyle = 'rgb(' + CV_GAUSS + ')'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(OB_SHAGOV), Y(OB_SHAGOV)); ctx.stroke();
+    if (O.shagov) {
+      ctx.strokeStyle = 'rgb(' + CV_ZERNO + ')'; ctx.lineWidth = 3;
+      ctx.beginPath();
+      for (var n = 0; n <= O.shagov; n++) { if (n) ctx.lineTo(X(n), Y(O.x2s[n])); else ctx.moveTo(X(n), Y(O.x2s[n])); }
+      ctx.stroke();
+      C.glow(ctx, X(O.shagov), Y(O.x2s[O.shagov]), 12, CV_ZERNO, .5);
+    }
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), S = sostoyanie(), M = OB_SHKALA[b.sh];
+    window.__demoState = S;
+    risOblako(ctx, tone, S);
+    risProfil(ctx, tone, S);
+    risKvadrat(ctx, tone, S);
+    C.readout(ctx, 640, 26, 'ВРЕМЯ', num(S.t / M.sT, M.dT) + ' ' + M.edT, 'rgb(' + tone.ink + ')');
+    C.readout(ctx, 805, 26, '√⟨r²⟩', S.steps ? ob2(S.sqrtR2 / M.m) + ' ' + M.ed : '—', 'rgb(' + tone.ink + ')');
+    C.readout(ctx, 975, 26, 'ВНУТРИ КРУГА', S.steps ? num(100 * S.inside, 1) + ' %' : '—', 'rgb(' + tone.accent + ')');
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+  function zanovo(K, zakon, seed) {
+    b.K = K; b.zakon = zakon; b.seed = seed;
+    b.O = new Oblako(K, zakon, seed); b.dolg = 0; b.cel = OB_SHAGOV;
+  }
+  function postavitTochki(v) {
+    var i = Math.round(C.clamp(v, 0, OB_TOCHEK.length - 1)), K = OB_TOCHEK[i];
+    if (K !== b.K) { zanovo(K, b.zakon, b.seed); obnovit(); }
+  }
+  function postavitZakon(z) { if (z !== b.zakon) { zanovo(b.K, z, b.seed); obnovit(); } }
+  function postavitShkalu(sh) { if (sh !== b.sh) { b.sh = sh; obnovit(); } }
+  function eshchyo() { zanovo(b.K, b.zakon, b.seed + 1); obnovit(); }
+
+  /* Для автопроверки: __demoSet({ K, zakon, seed, scale, steps, srazu, zanovo })
+     ставит ручки; steps задаёт, на каком шаге облако остановится, srazu
+     доводит до него без анимации. Меньше шагов, чем уже сделано: заново
+     тем же зерном. __demoModel даёт счёт. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    var K = b.K;
+    if (o.K != null) {
+      K = OB_TOCHEK[0];
+      OB_TOCHEK.forEach(function (v) { if (Math.abs(Math.log(v / o.K)) < Math.abs(Math.log(K / o.K))) K = v; });
+    }
+    var z = o.zakon != null && OB_ZAKONY.indexOf(o.zakon) >= 0 ? o.zakon : b.zakon;
+    var sd = o.seed != null ? o.seed : b.seed;
+    if (o.scale != null && OB_SHKALA[o.scale]) b.sh = o.scale;
+    if (K !== b.K || z !== b.zakon || sd !== b.seed || o.zanovo) zanovo(K, z, sd);
+    if (o.steps != null) {
+      var c = Math.round(C.clamp(o.steps, 0, OB_SHAGOV));
+      if (c < b.O.shagov) zanovo(b.K, b.zakon, b.seed);
+      b.cel = c;
+    }
+    if (o.srazu) while (b.O.shagov < b.cel) b.O.shag();
+    window.__demoState = sostoyanie();
+    obnovit();
+    return window.__demoState;
+  };
+  window.__demoModel = { mulberry32: mulberry32, Oblako: Oblako, obItogi: obItogi, obFizika: obFizika,
+                         obShirina: obShirina, obPBin: obPBin, obPhi: obPhi,
+                         konst: { OB_TOCHEK: OB_TOCHEK, OB_SHAGOV: OB_SHAGOV, OB_TEMP: OB_TEMP, OB_SHKALA: OB_SHKALA, OB_PX: OB_PX } };
+
+  /* ── строка показаний ── */
+  function slova(S) {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; }, M = OB_SHKALA[b.sh];
+    var tau = S.tau >= 1 ? num(S.tau, 0) + ' с' : num(1000 * S.tau, 0) + ' мс';
+    var t = tys(S.K) + ' точек, ' + tys(S.steps) + ' ' + C.plural(S.steps, 'шаг', 'шага', 'шагов') + ' по ' + tau + ', шаг ' + OB_PODPIS_HTML[S.zakon] + '. ';
+    if (!S.steps) return t + 'Все точки в месте старта.';
+    var e2 = M.ed + '²', k = 1 / (M.m * M.m);
+    t += 'На плоскости ⟨r²⟩ = ' + ob3(S.r2m2 * k) + ' ' + e2 + ' при 4Dt = ' + ob3(S.r2theoryM2 * k) + ' ' + e2 +
+      ', внутри круга радиусом √⟨r²⟩ ' + A(num(100 * S.inside, 1) + ' %') + ' точек, у Гаусса ' + num(100 * OB_IZNACH, 1) + ' %.';
+    return t;
+  }
+
+  var S = window.__demoState;
+  var iK = OB_TOCHEK.indexOf(b.K);
+  return html`
+    <div class="demo">
+      <div class="controls">
+        ${p && p.pokaz ? html`<${Pokaz13} rezhim="oblako" pokaz=${p.pokaz} />` : null}
+        <${C.Slider} label="Точек:" min=${0} max=${OB_TOCHEK.length - 1} step=${1} value=${iK}
+                     onChange=${postavitTochki} display=${tys(b.K)} />
+        <${C.Group} label="Шаг:">
+          ${OB_ZAKONY.map(function (z) {
+            return html`<${C.Btn} key=${z} active=${b.zakon === z} onClick=${function () { postavitZakon(z); }}>${z === 'osi' ? html`±<i class="ob-l">l</i> по осям` : OB_PODPIS[z]}<//>`;
+          })}
+        <//>
+        <${C.Group} label="Масштаб:">
+          ${OB_SHKALY.map(function (sh) {
+            return html`<${C.Btn} key=${sh} active=${b.sh === sh} onClick=${function () { postavitShkalu(sh); }}>${OB_SHKALA[sh].knopka}<//>`;
+          })}
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${eshchyo}>Заново<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <div class="status galton-status" data-ten=${OB_TEN}>
+        <span dangerouslySetInnerHTML=${{ __html: slova(S) }}></span>
+      </div>
+    </div>`;
+}
+
+/* ══════════════════ вычитка автора 24.11: матрос, ?nedelya=13&rezhim=matros ══════════════════
+
+   Замечание 3 автора к главе тринадцатой недели (облако диффузии и
+   пьяный матрос; бриф briefs/vychitka13_sborka.md, роль М; отчёт
+   briefs/vychitka13_M_REPORT.md). Место в главе у sluchajnye-bluzhdaniya
+   и рисунка ris-sluchajnoe-bluzhdanie. Матроса открывает кнопка «матрос»
+   рейки облака или параметр rezhim=matros; кнопка «облако» отпускает
+   толпу, то есть возвращает прежнее облако с его кодом и числами.
+
+   МОДЕЛЬ. Матрос выходит из бара на плоскости и каждый шаг длины l = 1 м
+   делает в случайную сторону: угол φ равномерен на [0, 2π), шаги
+   независимы. Улица главы стала площадью, счёт тот же: квадрат смещения
+   есть сумма квадратов шагов, каждый l², и перекрёстных произведений,
+   которые в среднем нули. Поэтому ⟨R²⟩ = Nl², и круг радиусом √N·l
+   показывает типичный уход. Шаг матроса длины l, а точка облака шагает
+   на √2·l: там l меряет средний квадрат шага по одной оси.
+
+   СЛУЧАЙНЫЕ ЧИСЛА. mulberry32 доски. Матрос i (счёт с нуля) берёт числа
+   своего зерна с номера i·2²⁰, по одному на шаг, φ = 2π·u. Путь матроса
+   не зависит от того, когда его добавили и сколько рядом других, и
+   состояние после N шагов есть функция зерна, числа матросов и N.
+   Python (briefs/lekciya13_skripty/vychitka/m_matros.py, раздел В) тем же
+   генератором получает те же пути до 10⁻¹¹.
+
+   ЗЕРНО ПОКАЗА 14 выбрано правилом, записанным в m_matros.py (раздел Б):
+   первое зерно, у которого первый матрос за 100 шагов уходит на 0,5–1,5
+   от √N·l, толпы из 11 и 21 матроса при 100 и 400 шагах отходят от
+   √N·l не больше чем на 10 %, а толпа из 101 не больше чем на 3 %. У
+   зерна 1, зерна облака, толпа из 101 за 100 шагов даёт 0,84 от √N·l,
+   на три своих разброса ниже: показ с ним учил бы неверному.
+
+   ЧИСЛА (m_matros.py; А своим генератором numpy на 200 000 матросов,
+   Б этим генератором). ⟨R²⟩/Nl² = 1,000 в пределах шума выборки при 10,
+   100 и 400 шагах. Внутри круга √N·l 0,622 при 10 шагах, 0,632 при 100 и
+   0,633 при 400 (у колокола на плоскости 1 − 1/e = 0,632). Медиана R
+   0,83·√N·l, среднее 0,89·√N·l. Один матрос в 80 % прогулок уходит на
+   0,33–1,51 от √N·l, при 100 шагах от 3 до 15 м; √⟨R²⟩ толпы из 11
+   отходит от √N·l в среднем на 15 %, из 101 на 5 %. Зерно 14: первый
+   матрос за 100 шагов ушёл на 10,29 м (табло 10,3 м), за 400 на 16,5 м
+   при √N·l = 20 м; √⟨R²⟩ толпы из 11 10,9 и 19,1 м, из 21 10,8 и 19,5 м,
+   из 101 10,0 и 19,6 м; внутри круга 62 из 101 при 100 шагах и 66 при 400.
+   Наибольший уход из 101 матроса 22,7 м за 100 шагов и 50,3 м за 400,
+   панель держит 2,4·√N·l, 24 и 48 м: за её край у колокола уходит
+   e^(−5,76) = 0,3 % матросов, у зерна 14 за 100 шагов никто, а за
+   400 шагов один около 283-го шага уходит на 50,3 м и к 400-му
+   возвращается на 43,7 м; кусок его следа может срезать край.
+
+   ПОКАЗ. Матрос идёт сам, 8 шагов в секунду до сотого шага (12,5 с) и
+   там встаёт: это вопрос кадра «Где окажется матрос через сто шагов?».
+   «Идти» ведёт дальше, 20 шагов в секунду до четырёхсотого (15 с), и
+   панель с графиком переходят на масштаб 400 шагов. «Шаг» делает один
+   шаг и останавливает ход. «+1» и «+10» добавляют матросов, которые
+   сразу стоят на том же шаге (до 101 матроса). Справа R² первого
+   матроса и ⟨R²⟩ по всем против прямой Nl². */
+
+var MT_SEED = 14;
+var MT_SKIP = 1 << 20;               /* чисел генератора на матроса */
+var MT_STOPY = [100, 400];           /* где ход встаёт */
+var MT_NMAX = 400, MT_KMAX = 101;
+function mtTemp(N) { return N < 100 ? 8 : 20; }   /* шагов в секунду */
+function mtCel(N) { return N < 100 ? 100 : 400; }
+
+/* Один матрос: путь x[n], y[n] в метрах, n = 0 … длина − 1. */
+function Matros(seed, i) { this.R = mulberry32(seed, i * MT_SKIP); this.x = [0]; this.y = [0]; }
+Matros.prototype.dojti = function (N) {
+  var x = this.x, y = this.y, f;
+  while (x.length <= N) {
+    f = 2 * Math.PI * this.R();
+    x.push(x[x.length - 1] + Math.cos(f)); y.push(y[y.length - 1] + Math.sin(f));
+  }
+};
+/* Матросы одного зерна, все на шаге N. */
+function Matrosy(seed, K) { this.seed = seed; this.m = []; this.N = 0; this.dobavit(K || 1); }
+Matrosy.prototype.dobavit = function (k) {
+  var n = Math.max(0, Math.min(k, MT_KMAX - this.m.length));
+  for (var j = 0; j < n; j++) { var M = new Matros(this.seed, this.m.length); M.dojti(this.N); this.m.push(M); }
+  return n;
+};
+Matrosy.prototype.postavit = function (N) {
+  N = Math.round(C.clamp(N, 0, MT_NMAX));
+  this.m.forEach(function (M) { M.dojti(N); });
+  this.N = N;
+};
+Matrosy.prototype.shag = function () { if (this.N < MT_NMAX) this.postavit(this.N + 1); };
+
+function mtItogi(T) {
+  var N = T.N, K = T.m.length, s = 0, vn = 0, xs = [], ys = [], R2 = [];
+  T.m.forEach(function (M) {
+    var x = M.x[N], y = M.y[N], q = x * x + y * y;
+    xs.push(x); ys.push(y); R2.push(q); s += q;
+    if (q <= N) vn++;
+  });
+  return { seed: T.seed, K: K, N: N, l: 1, put: N, R: Math.sqrt(R2[0]), krug: Math.sqrt(N), r2theory: N,
+           r2sr: s / K, sqrtR2: Math.sqrt(s / K), vnutri: N ? vn : null, insideGauss: OB_IZNACH,
+           x: xs, y: ys, R2: R2 };
+}
+/* Числа табло строками: их же рисует кадр и сверяет python. */
+function mtTablo(S) { return { N: tys(S.N), R: num(S.R, 1) + ' м', krug: num(S.krug, 1) + ' м' }; }
+
+var MT_PANEL = OB_PS / 2 - 4;        /* радиус панели в пикселях */
+function mtPx(cel) { return MT_PANEL / (2.4 * Math.sqrt(cel)); }
+var MT_GT = 122, MT_GB = 412;        /* график R² от N */
+var CV_DRUGIE = '150,160,190';
+
+/* Подпись с курсивной l: рубленый шрифт рисует l как I (правило .ob-l).
+   chasti: [[текст, курсив?], …]. */
+function mtNadpis(ctx, x, y, chasti, size, color, align) {
+  var f0 = size + 'px "Golos Text", system-ui, sans-serif';
+  var f1 = 'italic ' + Math.round(size * 1.12) + 'px "Times New Roman", Times, Georgia, serif';
+  var w = 0;
+  chasti.forEach(function (c) { ctx.font = c[1] ? f1 : f0; w += ctx.measureText(c[0]).width; });
+  var x0 = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
+  ctx.fillStyle = color; ctx.textAlign = 'left';
+  chasti.forEach(function (c) { ctx.font = c[1] ? f1 : f0; ctx.fillText(c[0], x0, y); x0 += ctx.measureText(c[0]).width; });
+  ctx.textAlign = 'center';
+}
+
+/* Место подписи R у стрелки смещения. Кандидаты по обе стороны стрелки
+   (отступ 18 и 30 px) у трети, середины и двух третей её длины; берём
+   тот, рядом с которым (ближе 15 px) меньше отрезков следа первого
+   матроса, при равенстве ближе к середине и к стрелке. Отдаёт [x, y]
+   середины буквы. */
+function mtMestoR(M, N, X, Y, cx, cy, xm, ym, ux, uy) {
+  var best = null, bs = 1e9;
+  [0.5, 0.35, 0.65].forEach(function (f) {
+    [18, 30].forEach(function (o) {
+      [1, -1].forEach(function (s) {
+        var px = cx + (xm - cx) * f - uy * o * s, py = cy + (ym - cy) * f + ux * o * s, k = 0, n;
+        for (n = 1; n <= N; n++) {
+          var ax = X(M.x[n - 1]), ay = Y(M.y[n - 1]), bx = X(M.x[n]), by = Y(M.y[n]);
+          var dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+          var t = L2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
+          var qx = ax + t * dx - px, qy = ay + t * dy - py;
+          if (qx * qx + qy * qy < 225) k++;
+        }
+        var sc = k * 100 + Math.abs(f - 0.5) * 20 + (o - 18) / 6 + (s < 0 ? 0.5 : 0);
+        if (sc < bs) { bs = sc; best = [px, py]; }
+      });
+    });
+  });
+  return best;
+}
+
+/* Подпись с подложкой цветом фона: обводка буквы стирает нарисованное
+   под ней до прозрачности, и сквозь канву виден настоящий фон, сетка
+   прибора в колоде или страница темы в главе (там канва прозрачна и
+   цвета фона не знает). Потом буква рисуется поверх. */
+function mtPodlozhka(ctx, x, y, text, size, color) {
+  ctx.save();
+  ctx.font = size + 'px "Golos Text", system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.lineJoin = 'round';
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 7;
+  ctx.strokeText(text, x, y); ctx.fillText(text, x, y);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = color; ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+var MT_TEN ='101 матрос по 400 шагов. Первый ушёл от бара на 50,3 м, а по всем √⟨R²⟩ = 19,6 м при √N·l = 20,0 м. Внутри круга 100 из 101.';
+
+/* Группа «Показ:» у облака и у матроса на одном месте рейки. */
+function Pokaz13(p) {
+  return html`<${C.Group} label="Показ:">
+    <${C.Btn} active=${p.rezhim === 'matros'} onClick=${function () { p.pokaz('matros'); }}>матрос<//>
+    <${C.Btn} active=${p.rezhim === 'oblako'} onClick=${function () { p.pokaz('oblako'); }}>облако<//>
+  <//>`;
+}
+
+function MatrosDemka(p) {
+  var B = useRef(null);
+  if (!B.current) B.current = { seed: MT_SEED, T: new Matrosy(MT_SEED, 1), cel: 100, idet: true, dolg: 0 };
+  var b = B.current;
+  var _t = useState(0), tik = _t[1];
+  function obnovit() { tik(function (x) { return x + 1; }); }
+
+  function sostoyanie() {
+    var S = mtItogi(b.T);
+    S.nedelya = 13; S.rezhim = 'matros'; S.cel = b.cel; S.idet = b.idet;
+    return S;
+  }
+  window.__demoState = sostoyanie();
+
+  function step(dt) {
+    if (!b.idet) { b.dolg = 0; return; }
+    b.dolg += mtTemp(b.T.N) * dt;
+    var m = Math.min(Math.floor(b.dolg), b.cel - b.T.N);
+    b.dolg -= m;
+    for (var i = 0; i < m; i++) b.T.shag();
+    if (b.T.N >= b.cel) { b.idet = false; b.dolg = 0; }
+    if (m || !b.idet) { window.__demoState = sostoyanie(); obnovit(); }
+  }
+
+  function risPloshchad(ctx, tone, S) {
+    var T = b.T, N = T.N, K = T.m.length, px = mtPx(b.cel), cx = OB_CX, cy = OB_CY, i, n, M;
+    function X(v) { return cx + v * px; }
+    function Y(v) { return cy - v * px; }
+    ctx.save();
+    ctx.beginPath(); ctx.rect(OB_PX0, OB_PY0, OB_PS, OB_PS); ctx.clip();
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.25)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(OB_PX0 + 0.75, OB_PY0 + 0.75, OB_PS - 1.5, OB_PS - 1.5);
+    /* круг √N·l */
+    if (N) {
+      ctx.strokeStyle = 'rgb(' + CV_GAUSS + ')'; ctx.lineWidth = 2.5; ctx.setLineDash([9, 7]);
+      ctx.beginPath(); ctx.arc(cx, cy, Math.sqrt(N) * px, 0, 6.284); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    /* следы остальных матросов, бледнее, чем больше толпа */
+    ctx.strokeStyle = 'rgba(' + CV_DRUGIE + ',' + (K > 30 ? .22 : .4) + ')'; ctx.lineWidth = 1.2;
+    for (i = 1; i < K; i++) {
+      M = T.m[i]; ctx.beginPath(); ctx.moveTo(X(0), Y(0));
+      for (n = 1; n <= N; n++) ctx.lineTo(X(M.x[n]), Y(M.y[n]));
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(' + CV_DRUGIE + ',.95)';
+    for (i = 1; i < K; i++) { ctx.beginPath(); ctx.arc(X(T.m[i].x[N]), Y(T.m[i].y[N]), 3.2, 0, 6.284); ctx.fill(); }
+    /* след первого */
+    M = T.m[0];
+    ctx.strokeStyle = 'rgba(' + CV_ZERNO + ',.95)'; ctx.lineWidth = 2.2; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(X(0), Y(0));
+    for (n = 1; n <= N; n++) ctx.lineTo(X(M.x[n]), Y(M.y[n]));
+    ctx.stroke();
+    /* бар; подпись с той стороны, куда стрелка R не идёт */
+    var xm = X(M.x[N]), ym = Y(M.y[N]), d = Math.hypot(xm - cx, ym - cy);
+    var ux = d > 16 ? (xm - cx) / d : 0.7071, uy = d > 16 ? (ym - cy) / d : 0.7071;
+    ctx.fillStyle = 'rgb(' + tone.ink + ')';
+    ctx.fillRect(cx - 5, cy - 5, 10, 10);
+    C.label(ctx, cx - ux * 24, cy - uy * 24 + 6, 'бар', 17, 'rgb(' + tone.ink + ')');
+    /* смещение R первого матроса */
+    if (d > 16) {
+      var xe = xm - ux * 9, ye = ym - uy * 9;
+      ctx.strokeStyle = 'rgb(' + tone.ink + ')'; ctx.fillStyle = 'rgb(' + tone.ink + ')'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(xe, ye); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xe + ux * 2, ye + uy * 2);
+      ctx.lineTo(xe - ux * 9 - uy * 5, ye - uy * 9 + ux * 5); ctx.lineTo(xe - ux * 9 + uy * 5, ye - uy * 9 - ux * 5);
+      ctx.closePath(); ctx.fill();
+      /* подпись R: из мест по обе стороны стрелки берём то, где меньше
+         отрезков следа первого матроса, и даём букве подложку цветом фона */
+      var lr = mtMestoR(M, N, X, Y, cx, cy, xm, ym, ux, uy);
+      mtPodlozhka(ctx, lr[0], lr[1] + 6, 'R', 19, 'rgb(' + tone.ink + ')');
+    }
+    C.glow(ctx, xm, ym, 16, CV_ZERNO, .5);
+    ctx.fillStyle = 'rgb(' + CV_ZERNO + ')';
+    ctx.beginPath(); ctx.arc(xm, ym, 6, 0, 6.284); ctx.fill();
+    ctx.restore();
+    /* подписи */
+    C.label(ctx, OB_PX0 + 12, OB_PY0 + 28, 'на плоскости', 19, 'rgb(' + tone.ink + ')', 'left');
+    mtNadpis(ctx, OB_PX0 + OB_PS - 12, OB_PY0 + 28, [['шаг ', false], ['l', true], [' = 1 м в случайную сторону', false]], 17,
+             'rgb(' + tone.ink + ')', 'right');
+    if (N) {
+      var Rk = Math.sqrt(N) * px, a = Math.SQRT1_2;
+      mtNadpis(ctx, cx + Rk * a + 8, cy - Rk * a - 8, [['√N·', false], ['l', true]], 19, 'rgb(' + CV_GAUSS + ')', 'left');
+    }
+    /* линейка: 10 м при 100 шагах, 20 м при 400 */
+    var dl = b.cel > 100 ? 20 : 10, L = dl * px, yl = OB_PY0 + OB_PS - 18, xl = OB_PX0 + 16;
+    ctx.strokeStyle = 'rgb(' + tone.ink + ')'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(xl, yl); ctx.lineTo(xl + L, yl);
+    ctx.moveTo(xl, yl - 6); ctx.lineTo(xl, yl + 6); ctx.moveTo(xl + L, yl - 6); ctx.lineTo(xl + L, yl + 6); ctx.stroke();
+    C.label(ctx, xl + L + 10, yl + 6, dl + ' м', 17, 'rgb(' + tone.ink + ')', 'left');
+  }
+
+  function risGrafik(ctx, tone, S) {
+    var T = b.T, N = T.N, K = T.m.length, cel = b.cel, ymax = 2.5 * cel, n, i;
+    function X(v) { return OB_GX0 + v / cel * (OB_GX1 - OB_GX0); }
+    function Y(v) { return MT_GB - v / ymax * (MT_GB - MT_GT); }
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(OB_GX0, MT_GT - 4); ctx.lineTo(OB_GX0, MT_GB); ctx.lineTo(OB_GX1, MT_GB); ctx.stroke();
+    [0, 0.5, 1].forEach(function (f) {
+      C.label(ctx, X(f * cel), MT_GB + 22, f === 1 ? cel + ' шагов' : String(f * cel), 17,
+              'rgba(' + tone.muted + ',.95)', f === 1 ? 'right' : f ? 'center' : 'left');
+    });
+    ctx.strokeStyle = 'rgba(' + tone.ink + ',.3)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(OB_GX0, Y(cel)); ctx.lineTo(OB_GX1, Y(cel)); ctx.stroke();
+    C.label(ctx, OB_GX0 + 8, Y(cel) - 8, cel + ' м²', 17, 'rgba(' + tone.muted + ',.95)', 'left');
+    C.label(ctx, OB_GX0, MT_GT - 16, 'R² первого', 17, 'rgb(' + CV_ZERNO + ')', 'left');
+    mtNadpis(ctx, OB_GX1, MT_GT - 16, [['прямая N', false], ['l', true], ['²', false]], 17, 'rgb(' + CV_GAUSS + ')', 'right');
+    if (K > 1) C.label(ctx, OB_GX0 + 8, MT_GT + 14, '⟨R²⟩ по всем', 17, 'rgb(' + tone.ink + ')', 'left');
+    ctx.save();
+    ctx.beginPath(); ctx.rect(OB_GX0, MT_GT - 4, OB_GX1 - OB_GX0 + 4, MT_GB - MT_GT + 4); ctx.clip();
+    ctx.strokeStyle = 'rgb(' + CV_GAUSS + ')'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(cel), Y(cel)); ctx.stroke();
+    if (N) {
+      var M = T.m[0];
+      ctx.strokeStyle = 'rgb(' + CV_ZERNO + ')'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (n = 0; n <= N; n++) { var q = M.x[n] * M.x[n] + M.y[n] * M.y[n]; if (n) ctx.lineTo(X(n), Y(q)); else ctx.moveTo(X(n), Y(q)); }
+      ctx.stroke();
+      if (K > 1) {
+        ctx.strokeStyle = 'rgb(' + tone.ink + ')'; ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (n = 0; n <= N; n++) {
+          var s = 0;
+          for (i = 0; i < K; i++) s += T.m[i].x[n] * T.m[i].x[n] + T.m[i].y[n] * T.m[i].y[n];
+          if (n) ctx.lineTo(X(n), Y(s / K)); else ctx.moveTo(X(n), Y(s / K));
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), S = sostoyanie(), Tb = mtTablo(S);
+    window.__demoState = S;
+    risPloshchad(ctx, tone, S);
+    risGrafik(ctx, tone, S);
+    C.readout(ctx, 640, 26, 'ШАГОВ', Tb.N, 'rgb(' + tone.ink + ')');
+    C.readout(ctx, 805, 26, 'ОТ БАРА', Tb.R, 'rgb(' + tone.accent + ')');
+    /* в моноширинной подписи l читалась бы как 1, поэтому словами */
+    C.readout(ctx, 975, 26, 'РАДИУС КРУГА', Tb.krug, 'rgb(' + CV_GAUSS + ')');
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+  function idti() {
+    if (b.idet) { b.idet = false; obnovit(); return; }
+    if (b.T.N >= MT_NMAX) return;
+    if (b.T.N >= b.cel) b.cel = mtCel(b.T.N);
+    b.idet = true; b.dolg = 0; obnovit();
+  }
+  function odinShag() {
+    b.idet = false; b.dolg = 0;
+    if (b.T.N >= b.cel) b.cel = mtCel(b.T.N);
+    if (b.T.N < b.cel) b.T.shag();
+    obnovit();
+  }
+  function dobavit(k) { b.T.dobavit(k); obnovit(); }
+  function zanovo(seed) { b.seed = seed; b.T = new Matrosy(seed, 1); b.cel = 100; b.idet = true; b.dolg = 0; }
+  function eshchyo() { zanovo(b.seed + 1); obnovit(); }
+
+  /* Для автопроверки: __demoSet({ seed, K, N, idet, zanovo }) ставит
+     матросов на шаг N без анимации (ход тогда стоит); меньше матросов,
+     чем есть, или другое зерно: заново. __demoModel даёт счёт. */
+  window.__demoSet = function (o) {
+    o = o || {};
+    var sd = o.seed != null ? o.seed : b.seed;
+    var K = o.K != null ? Math.round(C.clamp(o.K, 1, MT_KMAX)) : b.T.m.length;
+    if (sd !== b.seed || o.zanovo || K < b.T.m.length) zanovo(sd);
+    if (K > b.T.m.length) b.T.dobavit(K - b.T.m.length);
+    if (o.N != null) { b.T.postavit(o.N); b.idet = false; b.dolg = 0; b.cel = b.T.N > 100 ? 400 : 100; }
+    if (o.idet != null) b.idet = !!o.idet && b.T.N < MT_NMAX;
+    window.__demoState = sostoyanie();
+    obnovit();
+    return window.__demoState;
+  };
+  window.__demoModel = { mulberry32: mulberry32, Matros: Matros, Matrosy: Matrosy, mtItogi: mtItogi, mtTablo: mtTablo,
+                         mtPx: mtPx, mtTemp: mtTemp, mtCel: mtCel,
+                         konst: { MT_SEED: MT_SEED, MT_SKIP: MT_SKIP, MT_STOPY: MT_STOPY, MT_NMAX: MT_NMAX, MT_KMAX: MT_KMAX } };
+
+  /* ── строка показаний ── */
+  function slova(S) {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; }, L = '<i class="ob-l">l</i>';
+    var kto = tys(S.K) + ' ' + C.plural(S.K, 'матрос', 'матроса', 'матросов');
+    if (!S.N) return S.K === 1 ? 'Матрос у бара. Каждый шаг ' + L + ' = 1 м он делает в случайную сторону и не помнит, куда шёл раньше.' :
+      kto + ' у бара. Каждый шагает на ' + L + ' = 1 м в случайную сторону, не глядя на других.';
+    var shagi = tys(S.N) + ' ' + C.plural(S.N, 'шаг', 'шага', 'шагов'), krug = num(S.krug, 1) + ' м';
+    if (S.K === 1)
+      return 'Матрос сделал ' + shagi + ' по 1 м: прошёл ' + tys(S.N) + ' м, а от бара ушёл на ' + A(num(S.R, 1) + ' м') +
+        ' при √N·' + L + ' = ' + krug + '.';
+    return kto + ' по ' + shagi + '. Первый ушёл от бара на ' + num(S.R, 1) + ' м, а по всем √⟨R²⟩ = ' +
+      A(num(S.sqrtR2, 1) + ' м') + ' при √N·' + L + ' = ' + krug + '. Внутри круга ' + S.vnutri + ' из ' + S.K + '.';
+  }
+
+  var S = window.__demoState, K = b.T.m.length, konec = b.T.N >= MT_NMAX;
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${Pokaz13} rezhim="matros" pokaz=${p.pokaz} />
+        <${C.Group}>
+          <${C.Btn} disabled=${konec} onClick=${odinShag}>Шаг<//>
+          <${C.Btn} active=${b.idet} disabled=${konec && !b.idet} onClick=${idti}>${b.idet ? 'Стоп' : 'Идти'}<//>
+        <//>
+        <${C.Group} label="Матросов:">
+          <${C.Btn} disabled=${K >= MT_KMAX} onClick=${function () { dobavit(1); }}>+1<//>
+          <${C.Btn} disabled=${K >= MT_KMAX} onClick=${function () { dobavit(10); }}>+10<//>
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${eshchyo}>Заново<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <div class="status galton-status" data-ten=${MT_TEN}>
+        <span dangerouslySetInnerHTML=${{ __html: slova(S) }}></span>
+      </div>
+    </div>`;
+}
+
+/* Тринадцатая неделя: облако или матрос, переключение кнопками «Показ:». */
+function Nedelya13() {
+  var _r = useState(REZHIM13), rezhim = _r[0], postavit = _r[1];
+  return rezhim === 'matros' ? html`<${MatrosDemka} pokaz=${postavit} />` : html`<${OblakoDemka} pokaz=${postavit} />`;
+}
+
+C.mount(NEDELYA13 ? Nedelya13 : Galton);
+</script>
+</body>
+</html>

@@ -1,0 +1,1109 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вязкость: пластины, разгон, труба</title>
+<link rel="stylesheet" href="../shared/vendor/katex/katex.min.css">
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-08/">&larr; Неделя 08</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/vendor/katex/katex.min.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=vyazkost"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Блоки главы `vyazkoe-techenie`, `kubik-v-dvizhenii`, `techenie-puazejlya`
+   (бриф briefs/proizvodstvo08.md, «Демки», исполнитель 2; карточка 2 описи
+   briefs/lekciya08_demki_minuty.md §1.4; рамка §6, демка 3; «Принято», п. 15:
+   буква η; мелочь 17 аудита ядра). Три вкладки за параметром адреса
+   ?vkladka=plastiny (по умолчанию, прежний кадр колоды), razgon, truba.
+
+   ОДИН ЗАКОН ВО ВСЕХ ВКЛАДКАХ. Тонкий слой жидкости толщины Δy: на его
+   верхнюю грань соседний слой действует касательным напряжением
+   η(v_сверху − v)/Δy, на нижнюю η(v − v_снизу)/Δy в обратную сторону.
+   Второй закон для слоя на единицу площади:
+       ρ Δy ∂v/∂t = η(v_сверху − v)/Δy − η(v − v_снизу)/Δy,
+   то есть ускорение слоя пропорционально тому, насколько его скорость
+   отличается от среднего по соседям:
+       ∂v/∂t = (2ν/Δy²)·((v_сверху + v_снизу)/2 − v),   ν = η/ρ.
+   Это Навье–Стокс для сдвигового течения, ρ ∂v/∂t = η ∂²v/∂y², и в трубе
+   к нему прибавляется сила перепада давления ΔP/l. Профиль нигде не
+   задаётся формулой: его даёт этот счёт, а формулы главы (прямая Куэтта,
+   парабола Пуазёйля, расход πR⁴ΔP/(8ηl)) стоят рядом для сверки.
+
+   СЧЁТ. Явная схема на сорока слоях. Между пластинами в безразмерном
+   времени t' = νt/h² с шагом 0,4·Δy'² (устойчива при шаге меньше Δy'²/2);
+   в трубе в цилиндрических кольцах, t' = νt/R², шаг 0,2·Δr'². Кольцо
+   между r − dr/2 и r + dr/2 получает силу перепада ΔP·2πr dr и вязкие
+   силы на двух боковых поверхностях η·2π(r ± dr/2)l·∂v/∂r; центральный
+   цилиндр радиуса dr/2 трётся о соседа одной поверхностью. Скорость в
+   трубе меряется в единицах v_P = (ΔP/l)R²/(4η), и сила перепада на
+   единицу массы в этих единицах равна 4. Безразмерный счёт один для всех
+   жидкостей: жидкость меняет только масштаб времени h²/ν и масштаб силы.
+
+   ВКЛАДКИ.
+   «Пластины»: установившийся профиль, снятый с того же счёта после
+   разгона до t' = 3 (остаток ведущей моды e^{−3π²} ~ 10⁻¹³). Ряды стрелок
+   стоят в серединах девяти полос, длина стрелки 54 px на скорость
+   пластины, пропорциональна скорости ряда; слева тот же профиль
+   неподвижными стрелками от общего основания. Ползунок задаёт скорость
+   сдвига ∂v/∂y в с⁻¹, одну для всех жидкостей; меняется сила
+   τ = η·∂v/∂y. Толщина стрелки тяги идёт как логарифм τ и показывает
+   порядок силы: воздух при 0,4 с⁻¹ даёт 7·10⁻⁶ Па, мёд при 4 с⁻¹ 40 Па.
+   «Разгон»: слой h = 1 см, верхняя пластина в момент t = 0 трогается со
+   скоростью 1 см/с. Показания: время в настоящих секундах, напряжения на
+   верхней и нижней пластинах в долях установившегося ηV/h (односторонняя
+   разность второго порядка), время, когда профиль всюду ближе процента
+   скорости пластины к прямой, и время, когда нижняя пластина получила
+   половину установившейся силы. На экране 0,1 единицы t' в секунду.
+   «Труба»: круглая труба R = 1 см (диаметр 2 см, как у задачи недели),
+   жидкость из покоя, перепад ΔP/l постоянен. Показания: скорость на оси,
+   средняя (расход кольцами Симпсоном, делённый на πR²), расход против
+   формулы главы, Re = ρ v_ср d/η по средней скорости и диаметру. Выше
+   двух тысяч (порог главы для длинной круглой трубы) профиль рисуется
+   бледным: так течь не будет. Кнопка «вдвое шире» ставит R = 2 см при том
+   же перепаде.
+
+   ЧИСЛА (python, scratchpad w08/tmp/demki/vyazkost.py описи и пересчёт
+   15.10). Вязкости справочные около 20 °C: воздух 1,8·10⁻⁵ Па·с и
+   1,2 кг/м³, вода 10⁻³ и 1000, глицерин 1,41 и 1260 (как в zakon-bernulli
+   и демке venturi, в 1410 раз вязче воды), мёд 10 и 1400.
+   Разгон против ряда Фурье v/V = y/h − Σ 2(−1)^{n+1}/(nπ)·sin(nπy/h)·
+   e^{−n²π²t'}: 6,4·10⁻⁴ при t' = 0,05, 1,9·10⁻⁵ при 0,5. Профиль у прямой
+   до процента за t' = ln(200/π)/π² = 0,4208, нижняя пластина получает
+   половину силы за 0,1388. При h = 1 см: вода 42,1 с и 13,9 с (h²/ν = 100
+   с), воздух 2,81 и 0,93, глицерин 0,038 и 0,012, мёд 0,0059 и 0,0019:
+   мёд в семь тысяч раз быстрее воды, хотя тянуть его в десять тысяч раз
+   тяжелее. Труба из покоя против ряда Бесселя 1,0·10⁻⁵ на сорока кольцах.
+   Установившийся счёт в кольцах даёт параболу точно: разностная схема
+   есть баланс кольца, и 1 − r'² обращает его в ноль без остатка.
+   Вода, 4 Па/м, d = 2 см (рамка, шаг «Пуазёйль»): v₀ = 0,100 м/с,
+   v_ср = 0,050, расход 0,942 л/мин, Re = 1000. Вдвое шире: расход в 16
+   раз больше, 15,1 л/мин, Re в 8 раз больше, 8000, и парабола там уже
+   неверна. Ведущая мода разгона трубы R²/(2,405²ν) = 17,3 с у воды.
+   ПРОВЕРКА 15.10, hcheck (порт 49933), чтение __demoState после
+   __demoTick. «Пластины»: профиль от прямой 9·10⁻¹⁴, τ = ηγ̇ точно
+   (мёд при 4 с⁻¹ 40 Па, воздух при 0,4 с⁻¹ 7,2·10⁻⁶ Па). «Разгон», вода:
+   против ряда Фурье 3,8·10⁻⁴ при t' = 0,085 и 1,4·10⁻⁵ при 0,535; до
+   процента от прямой 42,05 с (ряд 42,08: схема на 0,09 % быстрее),
+   нижняя пластина получает половину силы через 13,89 с; воздух 2,80 и
+   0,93 с, мёд 0,0059 и 0,0019 с. «Труба», вода 4 Па/м: против ряда
+   Бесселя 1,0·10⁻⁵ при t' = 0,085; к t' = 3 расход против формулы до
+   3·10⁻⁸, на оси 99 % за 81,4 с; вдвое шире расход ×16,0, Re ×8,0.
+   Отрицательный контроль на копиях с подложенным дефектом: сила перепада
+   на процент больше даёт расход на 1,00 % выше формулы; множитель 2,02
+   вместо 2 у среднего по соседям поднимает расхождение с рядом при
+   t' = 0,05 с 6,4·10⁻⁴ до 3,0·10⁻³; сдвиг ряда на процент по времени
+   даёт 2,0·10⁻³ у слоя и 3,0·10⁻³ у трубы.
+
+   НЕДЕЛЯ 13: ТЕПЛОВОЙ ФРОНТ, только за ?vkladka=razgon&nedelya=13
+   (вычитка автора 24.11, замечание 4, пункт 13; бриф
+   briefs/vychitka13_p4_sborka.md; карточка 4 описи
+   briefs/lekciya13_demki_minuty.md §1.5; блок главы teplovoj-front).
+   Без этой пары параметров демка побайтно прежняя: всё, что ниже
+   помечено «неделя 13», выполняется только при NED13.
+   Тот же счёт вкладки «Разгон» с температурой вместо скорости. Среду при
+   T0 в момент t = 0 тронула стенка при T1 и дальше держит её; слой
+   греется, если он холоднее среднего по соседям:
+       ∂θ/∂t = (2χ/Δx²)·((θ_справа + θ_слева)/2 − θ),   θ = (T − T0)/(T1 − T0),
+   то есть ∂T/∂t = χ ∂²T/∂x², как у импульса с ν. Стенка слева, среда
+   полубесконечная: счёт на трёх окнах показа с θ = 0 на дальнем краю,
+   240 узлов на окно, шаг 0,4·Δx²/χ; в 15 мин, 1 ч и 4 ч шаг укорачивается,
+   чтобы попасть ровно в момент. На часе демка встаёт сама, «Пуск» ведёт
+   до четырёх часов. Время экрана: 600 с опыта в секунду, час за 6 с.
+   Пунктиром точное решение главы erfc(x/2√(χt)), точкой глубина √(χt).
+   Табло: время, глубина √(χt), нагрев на ней в долях перепада, глубина
+   клина с тем же запасом тепла (удвоенный интеграл θ по глубине; точный
+   4√(χt/π), глава: 2,26√(χt)).
+   Материалы. Вода 1,43·10⁻⁷ м²/с и медь 1,17·10⁻⁴, как в главе (NIST
+   WebBook и Incropera, табл. A.1). Стекло оконное натриево-кальциевое
+   4,4·10⁻⁷: 0,95 Вт/(м·К) / (2500 кг/м³ · 860 Дж/(кг·К)), середины
+   диапазонов NGA Glass Technical Paper FM05-12 (2023), весь диапазон
+   4,1–4,8·10⁻⁷ (у Lienhard 5,9·10⁻⁷). Песок, насыщенный водой, 9,5·10⁻⁷
+   (EGU2015-4795, тот же обзор, что в главе). Окна 12 см, 21 см, 30 см и
+   3,5 м: везде около двенадцати √(χ/χ_воды) сантиметров, и картинка у всех
+   одна, меняется масштаб; клин четырёх часов помещается у всех (доля окна
+   0,84–0,88), √(χt) часа стоит на 0,19 оси. Правка 24.11 по проверке:
+   прежние окна 10/18/25 см клин четырёх часов обрезали.
+   Воздуха нет: с воздухом табло дало бы ответ задачи о вязкости азота
+   одним делением.
+   ЧИСЛА (python briefs/lekciya13_skripty/vychitka4/13_front.py). За час
+   √(χt): вода 2,27 см, стекло 3,99, песок 5,85, медь 64,9; за 15 мин и 4 ч у
+   воды 1,13 и 4,54 см. Клин того же тепла у воды за час 5,12 см. Схема
+   против erfc по всей глубине: 1,0·10⁻⁴ через 15 мин, 2,5·10⁻⁵ через час,
+   6·10⁻⁶ через 4 ч у всех материалов (сетка вдвое мельче даёт вчетверо
+   меньше); θ на √(χt) 0,4795, как erfc(1/2); клин до 2,3·10⁻⁴ от точного;
+   дальний край в окне показа не виден до последнего знака. Табло сверено
+   13_demka.py до 10⁻⁹; регрессия режимов восьмой недели 13_regressiya.py. */
+
+/* ── чистая физика ──────────────────────────────────────────────
+   Отсюда до пометки «конец чистой физики» код не знает о браузере. */
+
+/* η — динамическая вязкость, Па·с; ρ — плотность, кг/м³ */
+var FLUIDS = [
+  { id: 'air',   label: 'Воздух',   eta: 1.8e-5, rho: 1.2,  tex: '1{,}8 \\cdot 10^{-5}' },
+  { id: 'water', label: 'Вода',     eta: 1.0e-3, rho: 1000, tex: '10^{-3}' },
+  { id: 'glyc',  label: 'Глицерин', eta: 1.41,   rho: 1260, tex: '1{,}41' },
+  { id: 'honey', label: 'Мёд',      eta: 10,     rho: 1400, tex: '10' }
+];
+var WATER = 1.0e-3;
+var H_SLOJ = 0.01;          /* толщина слоя во вкладке разгона, м */
+var V_PLAST = 0.01;         /* скорость верхней пластины там же, м/с */
+var RE_POROG = 2000;        /* порог главы: около двух тысяч, длинная круглая труба */
+var TEMP = 0.1;             /* безразмерного времени на секунду экрана */
+
+/* Слой между пластинами: узлы k = 0…NY, y' = k/NY, v' = v/V. */
+var NY = 40, DY = 1 / NY, DT_Y = 0.4 * DY * DY;
+function sloiNovye() { var v = new Float64Array(NY + 1); v[NY] = 1; return { v: v, t: 0 }; }
+function sloiShag(s) {
+  var v = s.v, a = new Float64Array(NY + 1), k;
+  for (k = 1; k < NY; k++) {
+    /* ускорение слоя ∝ отличию его скорости от среднего по соседям */
+    var sredn = 0.5 * (v[k + 1] + v[k - 1]);
+    a[k] = 2 * (sredn - v[k]) / (DY * DY);
+  }
+  for (k = 1; k < NY; k++) v[k] += DT_Y * a[k];
+  s.t += DT_Y;
+}
+/* касательное напряжение на пластинах в единицах ηV/h: ∂v'/∂y' у стенки */
+function tauVerh(v) { return (3 * v[NY] - 4 * v[NY - 1] + v[NY - 2]) / (2 * DY); }
+function tauNiz(v) { return (-3 * v[0] + 4 * v[1] - v[2]) / (2 * DY); }
+function otPryamoj(v) {
+  var m = 0;
+  for (var k = 0; k <= NY; k++) m = Math.max(m, Math.abs(v[k] - k * DY));
+  return m;
+}
+function vNaY(v, y) {
+  var q = C.clamp(y, 0, 1) * NY, i = Math.min(NY - 1, Math.floor(q)), f = q - i;
+  return v[i] * (1 - f) + v[i + 1] * f;
+}
+/* Установившийся профиль для вкладки «Пластины» — с того же счёта */
+var USTANOV = (function () { var s = sloiNovye(); while (s.t < 3) sloiShag(s); return s; })();
+
+/* Труба: узлы i = 0…NR, r' = i/NR, u = v/v_P, v_P = (ΔP/l)R²/(4η). */
+var NR = 40, DR = 1 / NR, DT_R = 0.2 * DR * DR;
+function trubaNovaya() { return { u: new Float64Array(NR + 1), t: 0 }; }
+function trubaShag(s) {
+  var u = s.u, a = new Float64Array(NR + 1), i;
+  /* центральный цилиндр радиуса dr/2: перепад и трение одной поверхностью */
+  a[0] = 4 + 4 * (u[1] - u[0]) / (DR * DR);
+  for (i = 1; i < NR; i++) {
+    var r = i * DR, rp = r + DR / 2, rm = r - DR / 2;
+    /* кольцо: сила перепада и вязкие силы на наружной и внутренней поверхностях */
+    a[i] = 4 + (rp * (u[i + 1] - u[i]) - rm * (u[i] - u[i - 1])) / (r * DR * DR);
+  }
+  for (i = 0; i < NR; i++) u[i] += DT_R * a[i];
+  u[NR] = 0;                       /* жидкость у стенки стоит */
+  s.t += DT_R;
+}
+/* средняя скорость в единицах v_P: (1/πR²)∫v·2πr dr = 2∫u r' dr', Симпсон */
+function trubaSrednyaya(u) {
+  var s = 0;
+  for (var i = 0; i <= NR; i++) {
+    var w = (i === 0 || i === NR) ? 1 : (i % 2 ? 4 : 2);
+    s += w * u[i] * i * DR;
+  }
+  return 2 * s * DR / 3;
+}
+function uNaR(u, r) {
+  var q = C.clamp(Math.abs(r), 0, 1) * NR, i = Math.min(NR - 1, Math.floor(q)), f = q - i;
+  return u[i] * (1 - f) + u[i + 1] * f;
+}
+
+/* Неделя 13: тепловой фронт. θ = (T − T0)/(T1 − T0), x от стенки, м. */
+var MATERIALY = [
+  { id: 'voda',   label: 'Вода',   chi: 1.43e-7, Lw: 0.12, tick: 0.02, txt: '1,43·10⁻⁷', tex: '1{,}43 \\cdot 10^{-7}',
+    v: 'в воду', u: 'у воды', r: 'воды', na: 'вода' },
+  { id: 'steklo', label: 'Стекло', chi: 4.42e-7, Lw: 0.21, tick: 0.03, txt: '4,4·10⁻⁷',  tex: '4{,}4 \\cdot 10^{-7}',
+    v: 'в стекло', u: 'у стекла', r: 'стекла', na: 'стекло' },
+  { id: 'grunt',  label: 'Песок',  chi: 9.52e-7, Lw: 0.30, tick: 0.05, txt: '9,5·10⁻⁷',  tex: '9{,}5 \\cdot 10^{-7}',
+    v: 'в мокрый песок', u: 'у мокрого песка', r: 'мокрого песка', na: 'мокрый песок' },
+  { id: 'med',    label: 'Медь',   chi: 1.17e-4, Lw: 3.50, tick: 0.50, txt: '1,17·10⁻⁴', tex: '1{,}17 \\cdot 10^{-4}',
+    v: 'в медь', u: 'у меди', r: 'меди', na: 'медь' }
+];
+var FR_NW = 240, FR_K = 3, FR_CFL = 0.4;   /* узлов на окно, окон счёта, шаг в Δx²/χ */
+var FR_MOMENTS = [900, 3600, 14400];       /* 15 мин, час, четыре часа */
+var FR_STOP = 3600;                        /* здесь демка встаёт сама */
+var FR_TEMP = 600;                         /* секунд опыта на секунду экрана */
+function frontNovyj(m) {
+  var n = FR_NW * FR_K, th = new Float64Array(n + 1);
+  th[0] = 1;                               /* стенка держит T1, дальний край T0 */
+  return { m: m, dx: m.Lw / FR_NW, n: n, th: th, t: 0 };
+}
+function frontShag(s, dt) {
+  var th = s.th, n = s.n, dx = s.dx, a = new Float64Array(n + 1), k;
+  for (k = 1; k < n; k++) {
+    /* слой греется, если он холоднее среднего по соседям */
+    var sredn = 0.5 * (th[k + 1] + th[k - 1]);
+    a[k] = 2 * (sredn - th[k]) / (dx * dx);
+  }
+  for (k = 1; k < n; k++) th[k] += dt * s.m.chi * a[k];
+  s.t += dt;
+}
+/* erfc с абсолютной точностью около 10⁻¹⁵: ряд без перемены знаков до 3,
+   дальше цепная дробь */
+function erfc(x) {
+  if (x < 0) return 2 - erfc(-x);
+  if (x < 3) {
+    var term = x, sum = x, n = 0;
+    while (term > 1e-17 * sum) { n++; term *= 2 * x * x / (2 * n + 1); sum += term; }
+    return 1 - 2 / Math.sqrt(Math.PI) * Math.exp(-x * x) * sum;
+  }
+  var f = x, Cc = x, D = 0, i;
+  for (i = 1; i < 80; i++) {
+    var a = i / 2;
+    D = x + a * D; D = 1 / D; Cc = x + a / Cc;
+    var del = Cc * D; f *= del;
+    if (Math.abs(del - 1) < 1e-16) break;
+  }
+  return Math.exp(-x * x) / Math.sqrt(Math.PI) / f;
+}
+/* показания: все по посчитанному профилю, кроме самой метки √(χt) */
+function frontPokaz(s) {
+  var th = s.th, dx = s.dx, sq = Math.sqrt(s.m.chi * s.t), i, k;
+  var q = sq / dx; i = Math.floor(q);
+  var f = q - i, thS = th[i] * (1 - f) + th[i + 1] * f;
+  for (k = 0; k <= s.n && th[k] >= 0.5; k++);
+  var xh = (k - 1) * dx + (th[k - 1] - 0.5) / (th[k - 1] - th[k]) * dx;
+  var sum = 0; for (k = 0; k <= s.n; k++) sum += th[k];
+  var heat = dx * (sum - 0.5 * (th[0] + th[s.n]));          /* ∫θ dx, м */
+  var slope = (-3 * th[0] + 4 * th[1] - th[2]) / (2 * dx);   /* ∂θ/∂x у стенки, 1/м */
+  var err = null;
+  if (s.t > 0) {
+    err = 0;
+    for (k = 0; k <= s.n; k++) err = Math.max(err, Math.abs(th[k] - erfc(k * dx / (2 * sq))));
+  }
+  return { sqrtChiT: sq, thetaAtSqrt: thS, depthHalf: xh, heatIn: heat, wedge: 2 * heat,
+           wedgeExact: 4 * sq / Math.sqrt(Math.PI), wallSlope: slope,
+           wallSlopeExact: s.t > 0 ? -1 / Math.sqrt(Math.PI * s.m.chi * s.t) : null, erfcErr: err };
+}
+
+/* ── конец чистой физики ── */
+
+/* ── числа по-русски ── */
+var SUP = { '-': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+            '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
+function sup(n) { return String(n).split('').map(function (c) { return SUP[c] || c; }).join(''); }
+function spaced(s) { return s.replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+function num(x, d) {
+  var s = x.toFixed(d), p = s.split('.');
+  if (p[0].replace('-', '').length > 4) p[0] = spaced(p[0]);
+  return p.join(',');
+}
+/* значащие цифры; очень малые и очень большие — со степенью десяти */
+function sig(x, n) {
+  n = n || 3;
+  if (x === 0) return '0';
+  var a = Math.abs(x), e = Math.floor(Math.log10(a));
+  if (e < -3 || e > 5) {
+    var m = x / Math.pow(10, e);
+    if (Math.abs(m) >= 9.995) { m /= 10; e += 1; }
+    return num(m, n - 1) + '·10' + sup(e);
+  }
+  return num(x, Math.max(0, n - 1 - e));
+}
+function fmtDP(x) { return Math.abs(x - Math.round(x)) < 1e-9 ? String(Math.round(x)) : num(x, 1); }
+function ratioWords(eta) {
+  var r = eta / WATER;
+  if (Math.abs(r - 1) < 0.01) return { same: true };
+  if (r > 1) return { n: spaced(String(Math.round(r))), word: 'сильнее' };
+  return { n: spaced(String(Math.round(1 / r))), word: 'слабее' };
+}
+/* множитель времени экрана: «ускорено в 10 раз», «замедлено в 710 раз» */
+function razSlovo(s) {
+  if (s.indexOf(',') >= 0) return 'раза';            /* «в 1,5 раза» */
+  return C.plural(parseInt(s.replace(/\s/g, ''), 10), 'раз', 'раза', 'раз');
+}
+function tempSlova(realNaSek) {
+  if (Math.abs(realNaSek - 1) < 0.05) return 'в настоящем времени';
+  var up = realNaSek > 1, s = sig(up ? realNaSek : 1 / realNaSek, 2);
+  return (up ? 'ускорено в ' : 'замедлено в ') + s + ' ' + razSlovo(s);
+}
+function tex(t) {
+  try { return katex.renderToString(t, { throwOnError: false }); }
+  catch (e) { return t; }
+}
+
+var VKLADKI = [
+  { id: 'plastiny', label: 'Пластины', W: 1180, H: 256 },
+  { id: 'razgon',   label: 'Разгон',   W: 1000, H: 420 },
+  { id: 'truba',    label: 'Труба',    W: 1000, H: 420 }
+];
+var PO_ID = {}; VKLADKI.forEach(function (v) { PO_ID[v.id] = v; });
+function vkladkaIzAdresa() {
+  try {
+    var q = new URLSearchParams(location.search).get('vkladka');
+    if (q && PO_ID[q]) return q;
+  } catch (e) {}
+  return 'plastiny';
+}
+/* неделя 13: тепловой фронт вместо разгона, только при обоих параметрах */
+var NED13 = (function () {
+  try {
+    var q = new URLSearchParams(location.search);
+    return q.get('nedelya') === '13' && q.get('vkladka') === 'razgon';
+  } catch (e) { return false; }
+})();
+if (NED13) {
+  var nazad = document.querySelector('.demo-back');
+  nazad.setAttribute('href', '/week-13/');
+  nazad.textContent = '← Неделя 13';
+  document.title = 'Тепловой фронт';
+}
+
+/* ── рисование: общие куски ── */
+var CYAN = '53,200,216', ORANGE = '#ffb454', RED = '#ff7a66';
+
+function strelka(ctx, x, y, len, col, w, head) {
+  head = head || 9; w = w || 3.2;
+  if (len < head + 3) {
+    ctx.beginPath(); ctx.arc(x, y, 3, 0, 6.283);
+    ctx.fillStyle = col; ctx.fill();
+    return;
+  }
+  ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'butt';
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + len - head, y); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x + len, y);
+  ctx.lineTo(x + len - head, y - 5.5);
+  ctx.lineTo(x + len - head, y + 5.5);
+  ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+}
+
+function plastina(ctx, x0, x1, y, hh, shift) {
+  ctx.fillStyle = '#16323a';
+  C.roundRect(ctx, x0, y, x1 - x0, hh, 4);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(230,241,244,.22)'; ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x0, y, x1 - x0, hh); ctx.clip();
+  var off = (shift || 0) % 18;
+  for (var x = x0 - 18 + off; x < x1 + 18; x += 18) {
+    ctx.beginPath(); ctx.moveTo(x, y + hh); ctx.lineTo(x + 10, y); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function shtrih(ctx, x0, y0, x1, y1, col, w, dash) {
+  ctx.save();
+  ctx.strokeStyle = col; ctx.lineWidth = w || 1.6;
+  if (dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.restore();
+}
+
+function Scena(p) {
+  var ref = C.useStage(p.W, p.H, p.step, p.draw);
+  return html`<canvas class="stage" ref=${ref}></canvas>`;
+}
+
+function Vyazkost() {
+  var S = useRef(null);
+  if (!S.current) {
+    S.current = {
+      tab: vkladkaIzAdresa(), fi: 1, rate: 1.2, dPdl: 4, wide: false, run: true,
+      phase: [], shift: 0,
+      sl: sloiNovye(), slAcc: 0, slTau50: null, slT1: null, slGhost: [], slFaza: [],
+      tr: trubaNovaya(), trAcc: 0, trT99: null, trFaza: [], trShift: 0
+    };
+    if (NED13) {                                   /* неделя 13 */
+      S.current.mi = 0; S.current.fr = frontNovyj(MATERIALY[0]);
+      S.current.frAcc = 0; S.current.frGhost = []; S.current.frFin = false;
+    }
+  }
+  var st = S.current;
+  var [ui, setUi] = useState({ tab: st.tab, fi: st.fi, rate: st.rate, dPdl: st.dPdl, wide: st.wide, run: st.run, tick: 0 });
+  function obnovit() {
+    setUi({ tab: st.tab, fi: st.fi, rate: st.rate, dPdl: st.dPdl, wide: st.wide, run: st.run, tick: Date.now() });
+  }
+
+  var LAYERS = 9;
+  function yRyada(k) { return (k + 0.5) / LAYERS; }
+
+  /* ═════════ «Пластины» ═════════ */
+  var PL = { x0: 40, x1: 780, yTop: 62, yBot: 208, plate: 16, base: 58, kp: 92, xFlow: 186, spacing: 148 };
+  var PL_H = PL.yBot - PL.yTop;
+  var LAD = { x: 890, yLo: 226, yHi: 50, loD: -5, hiD: 1 };
+  function ladY(eta) {
+    var d = Math.log(eta) / Math.LN10;
+    return LAD.yLo - (d - LAD.loD) / (LAD.hiD - LAD.loD) * (LAD.yLo - LAD.yHi);
+  }
+  function plY(y) { return PL.yBot - y * PL_H; }
+
+  function stepPlastiny(dt) {
+    var V = st.rate * PL_H;                  /* скорость верхней пластины на экране, px/с */
+    for (var k = 0; k < LAYERS; k++) {
+      var f = vNaY(USTANOV.v, yRyada(k));
+      st.phase[k] = ((st.phase[k] || 0) + V * f * dt) % PL.spacing;
+    }
+    st.shift += V * dt;
+  }
+
+  function drawPlastiny(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted;
+    var fl = FLUIDS[st.fi];
+    var tau = fl.eta * st.rate * tauVerh(USTANOV.v);
+
+    ctx.fillStyle = 'rgba(' + CYAN + ',.05)';
+    ctx.fillRect(PL.x0, PL.yTop, PL.x1 - PL.x0, PL_H);
+
+    /* профиль: неподвижные стрелки от общего основания и линия по сорока слоям */
+    shtrih(ctx, PL.base, PL.yTop, PL.base, PL.yBot, 'rgba(' + ink + ',.45)', 1.6);
+    for (var k = 0; k < LAYERS; k++) {
+      var f = vNaY(USTANOV.v, yRyada(k));
+      strelka(ctx, PL.base, plY(yRyada(k)), PL.kp * f, 'rgba(' + CYAN + ',.75)', 2.6, 8);
+    }
+    ctx.strokeStyle = 'rgba(' + ink + ',.85)'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (var j = 0; j <= NY; j++) {
+      var px = PL.base + PL.kp * USTANOV.v[j], py = plY(j * DY);
+      if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    /* ряды бегущих стрелок: длина и ход пропорциональны скорости ряда */
+    for (k = 0; k < LAYERS; k++) {
+      var fk = vNaY(USTANOV.v, yRyada(k)), len = 54 * fk, a = 0.42 + 0.42 * fk;
+      for (var x = PL.xFlow + st.phase[k] - PL.spacing; x < PL.x1 - 14; x += PL.spacing) {
+        if (x < PL.xFlow || x + len > PL.x1 - 14) continue;
+        strelka(ctx, x, plY(yRyada(k)), len, 'rgba(' + CYAN + ',' + a.toFixed(3) + ')');
+      }
+    }
+
+    plastina(ctx, PL.x0, PL.x1, PL.yTop - PL.plate, PL.plate, st.shift);
+    plastina(ctx, PL.x0, PL.x1, PL.yBot, PL.plate, 0);
+
+    /* стрелка тяги: толщина показывает порядок силы, а не её саму */
+    var lg = Math.log(tau) / Math.LN10;
+    var thick = C.clamp(3 + (lg + 5.2) * 2.5, 3, 21);
+    var ay = PL.yTop - PL.plate - 20;
+    var tipX = PL.x0 + 268, headLen = 22 + thick * .5;
+    ctx.strokeStyle = ORANGE; ctx.lineWidth = thick; ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.moveTo(PL.x0 + 60, ay); ctx.lineTo(tipX - headLen, ay); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(tipX, ay);
+    ctx.lineTo(tipX - headLen, ay - thick * .5 - 10);
+    ctx.lineTo(tipX - headLen, ay + thick * .5 + 10);
+    ctx.closePath(); ctx.fillStyle = ORANGE; ctx.fill();
+    C.label(ctx, tipX + 22, ay + 7, 'тянем', 20, ORANGE, 'left');
+
+    C.label(ctx, PL.x0, PL.yBot + PL.plate + 22, 'нижняя пластина стоит', 19, 'rgb(' + mut + ')', 'left');
+    C.label(ctx, PL.x1, PL.yTop - PL.plate - 6, 'верхняя пластина едет', 19, 'rgb(' + mut + ')', 'right');
+
+    /* лестница вязкости */
+    ctx.strokeStyle = 'rgba(' + ink + ',.2)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(LAD.x, LAD.yHi - 12); ctx.lineTo(LAD.x, LAD.yLo + 12); ctx.stroke();
+    for (var d = LAD.loD; d <= LAD.hiD; d++) {
+      var y = ladY(Math.pow(10, d));
+      ctx.beginPath(); ctx.moveTo(LAD.x - 7, y); ctx.lineTo(LAD.x, y); ctx.stroke();
+      C.label(ctx, LAD.x - 14, y + 6, '10' + sup(d), 17, 'rgb(' + mut + ')', 'right');
+    }
+    C.label(ctx, LAD.x + 4, LAD.yHi - 26, 'ВЯЗКОСТЬ η, Па·с', 17, 'rgb(' + mut + ')', 'left');
+    FLUIDS.forEach(function (f, i) {
+      var yy = ladY(f.eta), on = i === st.fi;
+      ctx.beginPath(); ctx.arc(LAD.x, yy, on ? 7 : 4.5, 0, 6.283);
+      ctx.fillStyle = on ? 'rgb(' + CYAN + ')' : 'rgba(' + mut + ',.7)'; ctx.fill();
+      if (on) C.glow(ctx, LAD.x, yy, 22, CYAN, .5);
+      C.label(ctx, LAD.x + 18, yy + 7, f.label, on ? 22 : 19, on ? 'rgb(' + ink + ')' : 'rgb(' + mut + ')', 'left');
+    });
+  }
+
+  /* ═════════ «Разгон» ═════════ */
+  var RZ = { x0: 40, x1: 600, yTop: 86, yBot: 326, plate: 16, base: 64, kp: 220, xFlow: 330, spacing: 120, scr: 120 };
+  var RZ_H = RZ.yBot - RZ.yTop;
+  var GHOST_T = [0.005, 0.02, 0.05, 0.1, 0.2];
+  function rzY(y) { return RZ.yBot - y * RZ_H; }
+
+  function sbrosRazgon() {
+    st.sl = sloiNovye(); st.slAcc = 0; st.slTau50 = null; st.slT1 = null; st.slGhost = []; st.slFaza = []; st.rzShift = 0;
+  }
+
+  function stepRazgon(dt) {
+    var s = st.sl;
+    if (!st.run) return;
+    for (var k = 0; k < LAYERS; k++) {
+      var f = vNaY(s.v, yRyada(k));
+      st.slFaza[k] = ((st.slFaza[k] || 0) + RZ.scr * f * dt) % RZ.spacing;
+    }
+    st.rzShift = (st.rzShift || 0) + RZ.scr * dt;
+    if (s.t >= 3) return;
+    st.slAcc += TEMP * dt;
+    while (st.slAcc >= DT_Y && s.t < 3) {
+      var tb0 = tauNiz(s.v), e0 = otPryamoj(s.v), t0 = s.t;
+      sloiShag(s);
+      st.slAcc -= DT_Y;
+      var tb1 = tauNiz(s.v), e1 = otPryamoj(s.v);
+      /* события ловим между шагами и делим шаг линейно */
+      if (st.slTau50 == null && tb0 < 0.5 && tb1 >= 0.5) st.slTau50 = t0 + (0.5 - tb0) / (tb1 - tb0) * DT_Y;
+      if (st.slT1 == null && e0 > 0.01 && e1 <= 0.01) st.slT1 = t0 + (e0 - 0.01) / (e0 - e1) * DT_Y;
+      for (var g = 0; g < GHOST_T.length; g++) {
+        if (!st.slGhost[g] && s.t >= GHOST_T[g]) st.slGhost[g] = Float64Array.from(s.v);
+      }
+    }
+  }
+
+  function drawRazgon(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted;
+    var fl = FLUIDS[st.fi], nu = fl.eta / fl.rho, T = H_SLOJ * H_SLOJ / nu, s = st.sl;
+
+    ctx.fillStyle = 'rgba(' + CYAN + ',.05)';
+    ctx.fillRect(RZ.x0, RZ.yTop, RZ.x1 - RZ.x0, RZ_H);
+
+    /* прямая Куэтта пунктиром — формула главы для сверки */
+    shtrih(ctx, RZ.base, RZ.yBot, RZ.base + RZ.kp, RZ.yTop, 'rgba(' + ink + ',.45)', 1.6, [7, 6]);
+    shtrih(ctx, RZ.base, RZ.yTop, RZ.base, RZ.yBot, 'rgba(' + ink + ',.45)', 1.6);
+    /* прежние профили бледно: как подхватывались слои */
+    ctx.lineWidth = 1.6; ctx.strokeStyle = 'rgba(' + ink + ',.22)';
+    st.slGhost.forEach(function (v) {
+      if (!v) return;
+      ctx.beginPath();
+      for (var j = 0; j <= NY; j++) {
+        var px = RZ.base + RZ.kp * v[j], py = rzY(j * DY);
+        if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    });
+    for (var k = 0; k < LAYERS; k++) {
+      strelka(ctx, RZ.base, rzY(yRyada(k)), RZ.kp * vNaY(s.v, yRyada(k)), 'rgba(' + CYAN + ',.75)', 2.6, 8);
+    }
+    ctx.strokeStyle = 'rgb(' + CYAN + ')'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (var j = 0; j <= NY; j++) {
+      var px = RZ.base + RZ.kp * s.v[j], py = rzY(j * DY);
+      if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    /* бегущие стрелки справа */
+    for (k = 0; k < LAYERS; k++) {
+      var f = vNaY(s.v, yRyada(k)), len = 54 * f;
+      for (var x = RZ.xFlow + (st.slFaza[k] || 0) - RZ.spacing; x < RZ.x1 - 14; x += RZ.spacing) {
+        if (x < RZ.xFlow || x + len > RZ.x1 - 14) continue;
+        strelka(ctx, x, rzY(yRyada(k)), len, 'rgba(' + CYAN + ',' + (0.42 + 0.42 * f).toFixed(3) + ')');
+      }
+    }
+
+    plastina(ctx, RZ.x0, RZ.x1, RZ.yTop - RZ.plate, RZ.plate, st.rzShift || 0);
+    plastina(ctx, RZ.x0, RZ.x1, RZ.yBot, RZ.plate, 0);
+    C.label(ctx, RZ.x1, RZ.yTop - RZ.plate - 10, 'верхняя пластина тронулась, 1 см/с', 19, 'rgb(' + mut + ')', 'right');
+    C.label(ctx, RZ.x0, RZ.yBot + RZ.plate + 26, 'нижняя стоит; слой h = 1 см', 19, 'rgb(' + mut + ')', 'left');
+    C.label(ctx, RZ.x0, RZ.yTop - RZ.plate - 10, 'профиль скорости', 19, 'rgb(' + mut + ')', 'left');
+
+    var X = 975;
+    C.readout(ctx, X, 40, 'ВРЕМЯ, с', sig(s.t * T, 3), 'rgb(' + ink + ')');
+    C.readout(ctx, X, 128, 'ВЕРХНЯЯ: τ / τ уст', s.t > 0 ? sig(tauVerh(s.v), 3) : '—', ORANGE);
+    C.readout(ctx, X, 216, 'НИЖНЯЯ: τ / τ уст', num(Math.max(0, tauNiz(s.v)), 3), ORANGE);
+    C.readout(ctx, X, 304, 'У ПРЯМОЙ ДО 1 %, с', st.slT1 != null ? sig(st.slT1 * T, 3) : '—', 'rgb(' + CYAN + ')');
+    C.label(ctx, X, 372, 'h²/ν = ' + sig(T, 3) + ' с', 17, 'rgb(' + mut + ')', 'right');
+    C.label(ctx, X, 398, tempSlova(TEMP * T), 17, 'rgb(' + mut + ')', 'right');
+  }
+
+  /* ═════════ неделя 13: тепловой фронт ═════════
+     Стенка слева, глубина x вправо, температура вверх, как на рисунке
+     ris-teplovoj-front; под осью полоса среды, окрашенная по температуре. */
+  var FR = { wall0: 72, x0: 96, x1: 672, yT1: 84, yT0: 264, b0: 276, b1: 308, tickY: 336 };
+  var HOT = '255,122,102';
+  function frX(x) { return FR.x0 + x / st.fr.m.Lw * (FR.x1 - FR.x0); }
+  function frY(th) { return FR.yT0 - th * (FR.yT0 - FR.yT1); }
+  function frKriv(ctx, th) {
+    ctx.beginPath();
+    for (var k = 0; k <= FR_NW; k++) {
+      var px = FR.x0 + k / FR_NW * (FR.x1 - FR.x0), py = frY(th[k]);
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+  }
+  function frNa(th, x, dx) {
+    var q = x / dx, i = Math.floor(q), f = q - i;
+    return th[i] * (1 - f) + th[i + 1] * f;
+  }
+  function vremya(t) {
+    t = Math.round(t);                             /* до секунды: кадры копят время с ошибкой округления */
+    if (t < 60) return Math.round(t) + ' с';
+    if (t < 3600) return Math.floor(t / 60) + ' мин';
+    var h = Math.floor(t / 3600), mm = Math.floor((t - 3600 * h) / 60);
+    return h + ' ч ' + (mm < 10 ? '0' : '') + mm + ' мин';
+  }
+  function tabloFront(s, P) {
+    if (!(s.t > 0)) return { vremya: vremya(0), glubina: '—', nagrev: '—', klin: '—' };
+    return { vremya: vremya(s.t), glubina: sig(P.sqrtChiT * 100, 2), nagrev: num(P.thetaAtSqrt, 2), klin: sig(P.wedge * 100, 2) };
+  }
+  function sbrosFront() { st.fr = frontNovyj(MATERIALY[st.mi]); st.frAcc = 0; st.frGhost = []; st.frFin = false; }
+
+  /* Шаги схемы целые, укорачивается только шаг, который попадает в момент
+     15 мин, 1 ч или 4 ч: история не зависит от частоты кадров. */
+  function stepFront(dt) {
+    var s = st.fr;
+    if (!st.run || st.frFin) return;
+    st.frAcc += FR_TEMP * dt;
+    var dt0 = FR_CFL * s.dx * s.dx / s.m.chi, sobytie = false, konec = FR_MOMENTS[FR_MOMENTS.length - 1];
+    for (;;) {
+      var cel = null;
+      for (var i = 0; i < FR_MOMENTS.length; i++) if (FR_MOMENTS[i] > s.t + 1e-9) { cel = FR_MOMENTS[i]; break; }
+      if (cel == null) { st.frFin = true; st.frAcc = 0; sobytie = true; break; }
+      var h = Math.min(dt0, cel - s.t);
+      if (h > st.frAcc + 1e-6) break;               /* накопленное время экрана с допуском в микросекунду опыта */
+      frontShag(s, h);
+      st.frAcc -= h;
+      if (s.t >= cel - 1e-9) {
+        s.t = cel;                                  /* момент ровно, как в 13_front.py */
+        sobytie = true;
+        if (cel < konec) st.frGhost.push({ t: cel, th: Float64Array.from(s.th.subarray(0, FR_NW + 1)) });
+        if (cel === FR_STOP) { st.run = false; st.frAcc = 0; break; }
+        if (cel === konec) { st.frFin = true; st.frAcc = 0; break; }
+      }
+    }
+    st.stAcc = (st.stAcc || 0) + dt;
+    if (st.stAcc >= 0.25 || sobytie) { st.stAcc = 0; obnovit(); }
+  }
+
+  function drawFront(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted;
+    var s = st.fr, m = s.m, P = frontPokaz(s), k, j;
+    var cw = (FR.x1 - FR.x0) / FR_NW;
+
+    /* среда: полоса по температуре слоя */
+    for (k = 0; k < FR_NW; k++) {
+      var tk = 0.5 * (s.th[k] + s.th[k + 1]);
+      ctx.fillStyle = 'rgba(' + HOT + ',' + (0.07 + 0.83 * tk).toFixed(3) + ')';
+      ctx.fillRect(FR.x0 + k * cw, FR.b0, cw + 0.6, FR.b1 - FR.b0);
+    }
+    C.label(ctx, FR.x1 - 10, FR.b1 - 9, m.na, 19, 'rgba(' + ink + ',.85)', 'right');
+    /* вошедшее тепло: площадь под профилем */
+    ctx.fillStyle = 'rgba(' + HOT + ',.14)';
+    frKriv(ctx, s.th); ctx.lineTo(FR.x1, FR.yT0); ctx.lineTo(FR.x0, FR.yT0); ctx.closePath(); ctx.fill();
+
+    /* оси и уровни */
+    shtrih(ctx, FR.x0, FR.yT1, FR.x1, FR.yT1, 'rgba(' + ink + ',.2)', 1.2, [4, 6]);
+    shtrih(ctx, FR.x0, FR.yT0, FR.x1 + 8, FR.yT0, 'rgba(' + ink + ',.6)', 1.6);
+    for (j = 0; j * m.tick <= m.Lw + 1e-9; j++) {
+      var px = frX(j * m.tick);
+      shtrih(ctx, px, FR.b1, px, FR.b1 + 7, 'rgba(' + ink + ',.6)', 1.4);
+      C.label(ctx, px, FR.tickY + 6, num(j * m.tick * 100, 0), 19, 'rgb(' + mut + ')', 'center');
+    }
+    C.label(ctx, FR.x1 + 26, FR.tickY + 6, 'x, см', 19, 'rgb(' + mut + ')', 'left');
+
+    /* стенка */
+    ctx.fillStyle = 'rgba(' + HOT + ',.85)';
+    ctx.fillRect(FR.wall0, FR.yT1 - 16, FR.x0 - FR.wall0, FR.b1 - FR.yT1 + 16);
+    C.label(ctx, FR.wall0 - 8, FR.yT1 + 7, 'T₁', 20, 'rgb(' + ink + ')', 'right');
+    C.label(ctx, FR.wall0 - 8, FR.yT0 + 7, 'T₀', 20, 'rgb(' + ink + ')', 'right');
+    C.label(ctx, FR.wall0, FR.yT1 - 30, 'стенку нагрели в t = 0 и держат при T₁', 19, 'rgb(' + mut + ')', 'left');
+
+    /* следы 15 мин и часа; след текущего момента не рисуется, он и есть профиль */
+    st.frGhost.forEach(function (g) {
+      if (g.t >= s.t) return;
+      ctx.strokeStyle = 'rgba(' + ink + ',.34)'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+      frKriv(ctx, g.th); ctx.stroke();
+      var gs = Math.sqrt(m.chi * g.t), gx = frX(gs), gy = frY(frNa(g.th, gs, s.dx));
+      ctx.beginPath(); ctx.arc(gx, gy, 4.5, 0, 6.283); ctx.fillStyle = 'rgba(' + ink + ',.6)'; ctx.fill();
+      C.label(ctx, gx, gy - 14, g.t === 900 ? '15 мин' : '1 ч', 19, 'rgb(' + mut + ')', 'center');
+    });
+
+    /* клин с тем же запасом тепла */
+    ctx.save();
+    ctx.beginPath(); ctx.rect(FR.x0, FR.yT1 - 2, FR.x1 - FR.x0, FR.yT0 - FR.yT1 + 4); ctx.clip();
+    if (s.t > 0) shtrih(ctx, FR.x0, FR.yT1, frX(P.wedge), FR.yT0, ORANGE, 2.2, [2, 5]);
+    ctx.restore();
+
+    /* посчитанный профиль и пунктиром точное решение */
+    ctx.strokeStyle = ORANGE; ctx.lineWidth = 3.4; ctx.lineJoin = 'round';
+    frKriv(ctx, s.th); ctx.stroke();
+    if (s.t > 0) {
+      ctx.save(); ctx.setLineDash([7, 6]);
+      ctx.strokeStyle = 'rgba(' + ink + ',.85)'; ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      for (k = 0; k <= FR_NW; k++) {
+        var ex = erfc(k * s.dx / (2 * P.sqrtChiT)), qx = FR.x0 + k * cw, qy = frY(ex);
+        if (k === 0) ctx.moveTo(qx, qy); else ctx.lineTo(qx, qy);
+      }
+      ctx.stroke(); ctx.restore();
+      /* метка √(χt) */
+      if (P.sqrtChiT <= m.Lw) {
+        var mx = frX(P.sqrtChiT), my = frY(P.thetaAtSqrt);
+        shtrih(ctx, mx, my, mx, FR.yT0, ORANGE, 1.6, [4, 4]);
+        C.glow(ctx, mx, my, 18, '255,180,84', .55);
+        ctx.beginPath(); ctx.arc(mx, my, 6, 0, 6.283); ctx.fillStyle = ORANGE; ctx.fill();
+        /* подпись слева от пунктира, где следы проходят выше; у самой стенки справа */
+        if (mx - FR.x0 > 72) C.label(ctx, mx - 7, FR.yT0 - 9, '√(χt)', 20, ORANGE, 'right');
+        else C.label(ctx, mx + 7, FR.yT0 - 9, '√(χt)', 20, ORANGE, 'left');
+      }
+    }
+
+    /* легенда */
+    var LX = 458, LY = 118;
+    shtrih(ctx, LX, LY - 7, LX + 34, LY - 7, ORANGE, 3.4);
+    C.label(ctx, LX + 44, LY, 'счёт', 19, 'rgb(' + mut + ')', 'left');
+    shtrih(ctx, LX, LY + 21, LX + 34, LY + 21, 'rgba(' + ink + ',.85)', 1.6, [7, 6]);
+    C.label(ctx, LX + 44, LY + 28, 'точное решение, erfc', 19, 'rgb(' + mut + ')', 'left');
+    shtrih(ctx, LX, LY + 49, LX + 34, LY + 49, ORANGE, 2.2, [2, 5]);
+    C.label(ctx, LX + 44, LY + 56, 'клин того же тепла', 19, 'rgb(' + mut + ')', 'left');
+
+    /* табло */
+    var X = 975, on = s.t > 0, T = tabloFront(s, P);
+    C.readout(ctx, X, 40, 'ВРЕМЯ', T.vremya, 'rgb(' + ink + ')');
+    C.readout(ctx, X, 128, 'ГЛУБИНА ПРОГРЕВА, см', T.glubina, ORANGE);
+    C.readout(ctx, X, 216, 'НАГРЕВ ТАМ / ПЕРЕПАД', T.nagrev, ORANGE);
+    C.readout(ctx, X, 304, 'КЛИН ТОГО ЖЕ ТЕПЛА, см', T.klin, ORANGE);
+    C.label(ctx, X, 372, 'χ = ' + m.txt + ' м²/с', 17, 'rgb(' + mut + ')', 'right');
+    C.label(ctx, X, 398, tempSlova(FR_TEMP), 17, 'rgb(' + mut + ')', 'right');
+    var etap = !on ? 'час идёт за 6 с, на часе демка встанет'
+             : st.frFin ? 'четыре часа: опыт окончен'
+             : s.t < FR_STOP ? 'на часе демка встанет'
+             : (st.run ? 'идём к четырём часам' : (s.t === FR_STOP ? 'час: «Пуск» доведёт до четырёх часов' : 'пауза: «Пуск» доведёт до четырёх часов'));
+    C.label(ctx, FR.wall0, 392, etap, 19, 'rgb(' + mut + ')', 'left');
+  }
+
+  function pokazFront() {
+    var s = st.fr, m = s.m, P = frontPokaz(s);
+    var o = { tab: 'razgon', nedelya: 13, rezhim: 'front', material: m.id, chi: m.chi, Lw: m.Lw, t: s.t };
+    for (var key in P) o[key] = P[key];
+    o.tablo = tabloFront(s, P);
+    o.profile = Array.from(s.th.subarray(0, FR_NW + 1));
+    o.ghosts = st.frGhost.map(function (g) { return g.t; });
+    o.run = st.run; o.fin = st.frFin; o.timeScale = FR_TEMP;
+    return o;
+  }
+
+  function slovaFront() {
+    var A = function (t) { return '<span class="accent">' + t + '</span>'; };
+    var s = st.fr, m = s.m, P = frontPokaz(s), voda = MATERIALY[0];
+    var nach = m.label + ', ' + tex('\\chi = ' + m.tex + '\\ \\text{м}^2/\\text{с}') + '. ';
+    var shema = 'Профиль считает та же схема, что разгоняла слой: слой греется, если он холоднее среднего по соседям. ';
+    if (!(s.t > 0)) return nach + 'Стенку в момент ' + tex('t = 0') + ' нагрели и держат горячей, тепло пойдёт ' + m.v + '. ' + shema;
+    if (s.t < FR_STOP) return nach + shema + 'Пунктир точного решения лежит на посчитанной кривой. Круче всего профиль у стенки: через неё входит всё тепло.';
+    var gl = sig(P.sqrtChiT * 100, 2);
+    if (st.frFin) {
+      var gl1 = sig(Math.sqrt(m.chi * FR_STOP) * 100, 2);
+      return nach + 'За четыре часа ' + tex('\\sqrt{\\chi t}') + ' = ' + A(gl + ' см') + ', за час было ' + gl1 +
+        ' см. Время выросло вчетверо, глубина вдвое: чтобы прогреть вдвое глубже, ждать надо вчетверо дольше.';
+    }
+    if (s.t > FR_STOP) {
+      var rt = s.t / FR_STOP, st1 = sig(rt, 2), sd = sig(Math.sqrt(rt), 2);
+      return nach + 'Время с часа выросло в ' + st1 + ' ' + razSlovo(st1) + ', глубина прогрева в ' + sd + ' ' + razSlovo(sd) +
+        ': она растёт как корень из времени.';
+    }
+    var sr = '';
+    if (m.id === 'voda') sr = 'Воду в чайнике греют течения: одной теплопроводностью за час прогрелись бы пара сантиметров у дна. ';
+    else {
+      var r = sig(m.chi / voda.chi, 2), rd = sig(Math.sqrt(m.chi / voda.chi), 2);
+      sr = 'Температуропроводность ' + m.r + ' в ' + r + ' ' + razSlovo(r) + ' больше, чем у воды, а глубина прогрева больше в ' +
+        rd + ' ' + razSlovo(rd) + ': она растёт как корень из ' + tex('\\chi t') + '. ';
+    }
+    return nach + 'За час тепло ушло ' + m.v + ' на ' + tex('\\sqrt{\\chi t}') + ' = ' + A(gl + ' см') + ', нагрев там ' +
+      num(P.thetaAtSqrt, 2) + ' перепада, как ' + tex('\\mathrm{erfc}\\,\\tfrac12') + '. Тепла вошло столько, что клин с тем же запасом доходит до ' +
+      sig(P.wedge * 100, 2) + ' см. ' + sr;
+  }
+
+  /* ═════════ «Труба» ═════════ */
+  var TR = { x0: 40, x1: 600, yA: 210, hwN: 70, hwW: 140, base: 60, kp: 75, xFlow: 410, spacing: 80, scr: 1.5 };
+  function trHW() { return st.wide ? TR.hwW : TR.hwN; }
+
+  function trubaFiz() {
+    var fl = FLUIDS[st.fi], R = st.wide ? 0.02 : 0.01, nu = fl.eta / fl.rho;
+    var vP = st.dPdl * R * R / (4 * fl.eta);
+    var u = st.tr.u, vMean = trubaSrednyaya(u) * vP;
+    var Q = vMean * Math.PI * R * R;
+    var Qf = Math.PI * Math.pow(R, 4) * st.dPdl / (8 * fl.eta);
+    var Re = fl.rho * vMean * 2 * R / fl.eta;
+    var ReUst = fl.rho * (vP / 2) * 2 * R / fl.eta;
+    return { fl: fl, R: R, nu: nu, vP: vP, v0: u[0] * vP, vMean: vMean, Q: Q, Qf: Qf,
+             Re: Re, ReUst: ReUst, T: R * R / nu, t: st.tr.t * R * R / nu };
+  }
+  /* масштаб стрелок: узкая труба при текущем перепаде 75 px на оси, широкая вчетверо длиннее */
+  function trKpx() { return st.wide ? TR.kp * 4 : TR.kp; }
+
+  function sbrosTruba() { st.tr = trubaNovaya(); st.trAcc = 0; st.trT99 = null; }
+
+  function stepTruba(dt) {
+    var s = st.tr, kpx = trKpx();
+    var rows = [0.15, 0.45, 0.75];
+    if (!st.run) return;
+    for (var k = 0; k < rows.length; k++) {
+      st.trFaza[k] = ((st.trFaza[k] || 0) + TR.scr * kpx * uNaR(s.u, rows[k]) * dt) % TR.spacing;
+    }
+    if (s.t >= 3) return;
+    st.trAcc += TEMP * dt;
+    while (st.trAcc >= DT_R && s.t < 3) {
+      var u0 = s.u[0], t0 = s.t;
+      trubaShag(s);
+      st.trAcc -= DT_R;
+      if (st.trT99 == null && u0 < 0.99 && s.u[0] >= 0.99) st.trT99 = t0 + (0.99 - u0) / (s.u[0] - u0) * DT_R;
+    }
+  }
+
+  function drawTruba(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted;
+    var F = trubaFiz(), s = st.tr, hw = trHW(), kpx = trKpx(), yA = TR.yA;
+    var turb = F.Re >= RE_POROG;
+    function rY(r) { return yA - r * hw; }
+
+    ctx.fillStyle = 'rgba(' + CYAN + ',.05)';
+    ctx.fillRect(TR.x0, yA - hw, TR.x1 - TR.x0, 2 * hw);
+    /* стенки со штриховкой снаружи */
+    [-1, 1].forEach(function (sg) {
+      var y = yA + sg * hw;
+      shtrih(ctx, TR.x0, y, TR.x1, y, 'rgba(' + ink + ',.7)', 2.4);
+      ctx.save();
+      ctx.beginPath(); ctx.rect(TR.x0, sg < 0 ? y - 12 : y, TR.x1 - TR.x0, 12); ctx.clip();
+      ctx.strokeStyle = 'rgba(' + ink + ',.3)'; ctx.lineWidth = 1.3;
+      for (var x = TR.x0 - 12; x < TR.x1 + 12; x += 14) {
+        ctx.beginPath(); ctx.moveTo(x, sg < 0 ? y : y + 12); ctx.lineTo(x + 12, sg < 0 ? y - 12 : y); ctx.stroke();
+      }
+      ctx.restore();
+    });
+
+    /* формула главы пунктиром: v₀(1 − r²/R²) */
+    ctx.save(); ctx.setLineDash([7, 6]);
+    ctx.strokeStyle = 'rgba(' + ink + ',.45)'; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    for (var j = -NR; j <= NR; j++) {
+      var r = j / NR, px = TR.base + kpx * (1 - r * r), py = rY(r);
+      if (j === -NR) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke(); ctx.restore();
+    shtrih(ctx, TR.base, yA - hw, TR.base, yA + hw, 'rgba(' + ink + ',.45)', 1.6);
+
+    /* посчитанный профиль: стрелки от основания и линия по кольцам */
+    var aProf = turb ? 0.35 : 1;
+    for (var k = -4; k <= 4; k++) {
+      var rk = k / 5;
+      strelka(ctx, TR.base, rY(rk), kpx * uNaR(s.u, rk), 'rgba(' + CYAN + ',' + (0.75 * aProf).toFixed(2) + ')', 2.6, 8);
+    }
+    ctx.strokeStyle = 'rgba(' + CYAN + ',' + aProf + ')'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (j = -NR; j <= NR; j++) {
+      var px2 = TR.base + kpx * s.u[Math.abs(j)], py2 = rY(j / NR);
+      if (j === -NR) ctx.moveTo(px2, py2); else ctx.lineTo(px2, py2);
+    }
+    ctx.stroke();
+
+    /* бегущие метки: скорость пропорциональна скорости слоя */
+    var rows = [0.15, 0.45, 0.75];
+    for (k = 0; k < rows.length; k++) {
+      var f = uNaR(s.u, rows[k]);
+      [-1, 1].forEach(function (sg) {
+        for (var x = TR.xFlow + (st.trFaza[k] || 0) - TR.spacing; x < TR.x1 - 8; x += TR.spacing) {
+          if (x < TR.xFlow) continue;
+          ctx.beginPath(); ctx.arc(x, rY(sg * rows[k]), 4, 0, 6.283);
+          ctx.fillStyle = 'rgba(' + CYAN + ',' + ((0.45 + 0.4 * Math.min(1, f)) * aProf).toFixed(3) + ')'; ctx.fill();
+        }
+      });
+    }
+
+    C.label(ctx, TR.x0, yA - hw - 18, 'P₁', 20, 'rgb(' + ink + ')', 'left');
+    C.label(ctx, TR.x1, yA - hw - 18, 'P₂ < P₁', 20, 'rgb(' + ink + ')', 'right');
+    C.label(ctx, (TR.x0 + TR.x1) / 2, yA - hw - 18, 'ΔP/l = ' + fmtDP(st.dPdl) + ' Па/м, d = ' + (st.wide ? 4 : 2) + ' см',
+            19, 'rgb(' + mut + ')', 'center');
+    C.label(ctx, TR.x0, yA + hw + 32, 'у стенки v = 0, пунктиром формула главы', 18, 'rgb(' + mut + ')', 'left');
+    if (turb) C.label(ctx, TR.xFlow + 120, yA + 7, 'так течь не будет', 20, RED, 'center');
+
+    var X = 975;
+    C.readout(ctx, X, 30, 'НА ОСИ v₀, м/с', sig(F.v0, 3), 'rgb(' + CYAN + ')');
+    C.readout(ctx, X, 112, 'СРЕДНЯЯ, м/с', sig(F.vMean, 3), 'rgb(' + CYAN + ')');
+    C.readout(ctx, X, 194, 'РАСХОД, л/мин', sig(F.Q * 6e4, 3), 'rgb(' + ink + ')');
+    C.label(ctx, X, 256, 'формула: ' + sig(F.Qf * 6e4, 3), 17, 'rgb(' + mut + ')', 'right');
+    C.readout(ctx, X, 290, 'ЧИСЛО Re', F.Re >= 100 ? num(F.Re, 0) : sig(F.Re, 3), turb ? RED : ORANGE);
+    C.label(ctx, X, 372, 't = ' + sig(F.t, 3) + ' с', 17, 'rgb(' + mut + ')', 'right');
+    C.label(ctx, X, 398, tempSlova(TEMP * F.T), 17, 'rgb(' + mut + ')', 'right');
+  }
+
+  /* ── выбор вкладки ── */
+  var STEP = { plastiny: stepPlastiny, razgon: stepRazgon, truba: stepTruba };
+  var DRAW = { plastiny: drawPlastiny, razgon: drawRazgon, truba: drawTruba };
+  /* строка показаний живёт в React и обновляется, пока идёт разгон, четыре
+     раза в секунду экрана */
+  function step(dt) {
+    if (NED13) { stepFront(dt); return; }                 /* неделя 13 */
+    STEP[st.tab](dt);
+    if (st.tab !== 'plastiny' && st.run) {
+      var s = st.tab === 'razgon' ? st.sl : st.tr;
+      var ev = (st.slT1 != null) + (st.slTau50 != null) + (st.trT99 != null) + (s.t >= 3);
+      st.stAcc = (st.stAcc || 0) + dt;
+      if ((st.stAcc >= 0.25 && s.t < 3) || ev !== st.evN) { st.stAcc = 0; st.evN = ev; obnovit(); }
+    }
+  }
+  function draw(ctx) { if (NED13) { drawFront(ctx); return; } DRAW[st.tab](ctx); }
+
+  /* ── показания для автопроверки ── */
+  function pokaz() {
+    if (NED13) return pokazFront();                       /* неделя 13 */
+    var fl = FLUIDS[st.fi], nu = fl.eta / fl.rho, o = { tab: st.tab, fluid: fl.id, eta: fl.eta, rho: fl.rho, nu: nu };
+    if (st.tab === 'plastiny') {
+      o.rate = st.rate;
+      o.tau = fl.eta * st.rate * tauVerh(USTANOV.v);
+      o.profileError = otPryamoj(USTANOV.v);
+      o.rowSpeeds = []; for (var k = 0; k < LAYERS; k++) o.rowSpeeds.push(vNaY(USTANOV.v, yRyada(k)));
+    } else if (st.tab === 'razgon') {
+      var T = H_SLOJ * H_SLOJ / nu;
+      o.tPrime = st.sl.t; o.t = st.sl.t * T; o.T = T;
+      o.tSettle = st.slT1 != null ? st.slT1 * T : null; o.tSettlePrime = st.slT1;
+      o.tHalfBottom = st.slTau50 != null ? st.slTau50 * T : null; o.tHalfBottomPrime = st.slTau50;
+      o.profileError = otPryamoj(st.sl.v);
+      o.tauTop = tauVerh(st.sl.v); o.tauBottom = tauNiz(st.sl.v);
+      o.tauSteady = fl.eta * V_PLAST / H_SLOJ;
+      o.v = Array.from(st.sl.v);
+      o.timeScale = TEMP * T;
+    } else {
+      var F = trubaFiz();
+      o.R = F.R; o.dPdl = st.dPdl; o.wide = st.wide;
+      o.tPrime = st.tr.t; o.t = F.t; o.v0 = F.v0; o.vMean = F.vMean; o.Q = F.Q; o.Qformula = F.Qf;
+      o.v0formula = F.vP; o.Re = F.Re; o.ReSteady = F.ReUst; o.laminar = F.Re < RE_POROG;
+      o.t99 = st.trT99 != null ? st.trT99 * F.T : null; o.t99Prime = st.trT99;
+      o.u = Array.from(st.tr.u);
+      o.timeScale = TEMP * F.T;
+    }
+    o.run = st.run;
+    return o;
+  }
+  /* __demoSet({ tab, fluid, rate, dPdl, wide, run }) ставит опыт с этими ручками и
+     пускает его с начала; __demoModel — чистая физика для прогона без кадров. */
+  window.__demoSet = function (q) {
+    q = q || {};
+    /* неделя 13: { material, run } ставит опыт с начала; { prodolzhit: true }
+       пускает дальше после остановки на часе */
+    if (NED13) {
+      if (q.prodolzhit) { if (!st.frFin) st.run = true; obnovit(); return true; }
+      if (q.material) MATERIALY.forEach(function (m, i) { if (m.id === q.material) st.mi = i; });
+      st.run = q.run == null ? true : !!q.run;
+      sbrosFront(); obnovit();
+      return true;
+    }
+    if (q.tab && PO_ID[q.tab]) st.tab = q.tab;
+    if (q.fluid) FLUIDS.forEach(function (f, i) { if (f.id === q.fluid) st.fi = i; });
+    if (q.rate != null) st.rate = q.rate;
+    if (q.dPdl != null) st.dPdl = q.dPdl;
+    if (q.wide != null) st.wide = !!q.wide;
+    st.run = q.run == null ? true : !!q.run;
+    sbrosRazgon(); sbrosTruba();
+    obnovit();
+    return true;
+  };
+  window.__demoModel = {
+    FLUIDS: FLUIDS, NY: NY, DT_Y: DT_Y, NR: NR, DT_R: DT_R,
+    sloiNovye: sloiNovye, sloiShag: sloiShag, tauVerh: tauVerh, tauNiz: tauNiz, otPryamoj: otPryamoj,
+    trubaNovaya: trubaNovaya, trubaShag: trubaShag, trubaSrednyaya: trubaSrednyaya, USTANOV: USTANOV
+  };
+  /* показания читаются после __demoTick: строка состояния React обновляется
+     только с перерисовкой, а __demoState — геттер на живую модель */
+  try { Object.defineProperty(window, '__demoState', { configurable: true, get: pokaz }); } catch (e) {}
+  if (NED13) window.__demoModelFront = { MATERIALY: MATERIALY, FR_NW: FR_NW, FR_K: FR_K, FR_CFL: FR_CFL,
+    frontNovyj: frontNovyj, frontShag: frontShag, frontPokaz: frontPokaz, erfc: erfc };
+
+  /* ── ручки ── */
+  function vkladka(id) { st.tab = id; obnovit(); }
+  function pick(i) {
+    st.fi = i;
+    if (st.tab === 'razgon') sbrosRazgon();
+    if (st.tab === 'truba') sbrosTruba();
+    obnovit();
+  }
+  function setRate(v) { st.rate = v; obnovit(); }
+  function setDP(v) { st.dPdl = Math.round(v * 10) / 10; sbrosTruba(); obnovit(); }
+  function shire(w) { st.wide = w; sbrosTruba(); obnovit(); }
+  function pusk() { st.run = !st.run; obnovit(); }
+  function vybratMaterial(i) { st.mi = i; st.run = true; sbrosFront(); obnovit(); }   /* неделя 13 */
+  function nagretZanovo() { st.run = true; sbrosFront(); obnovit(); }
+  function snova() { if (st.tab === 'razgon') sbrosRazgon(); else sbrosTruba(); st.run = true; obnovit(); }
+
+  /* ── строка показаний ── */
+  function slova() {
+    var A = function (t) { return '<span class="accent">' + t + '</span>'; };
+    var fl = FLUIDS[st.fi], nu = fl.eta / fl.rho;
+    var etaT = tex('\\eta = ' + fl.tex + '\\ \\text{Па}\\cdot\\text{с}');
+    if (st.tab === 'plastiny') {
+      var r = ratioWords(fl.eta), tau = fl.eta * st.rate;
+      return etaT + ', скорость сдвига ' + tex('\\partial v/\\partial y') + ' = ' + num(st.rate, 1) + ' с⁻¹, напряжение ' +
+        tex('\\tau = \\eta\\,\\partial v/\\partial y') + ' = ' + A(sig(tau, 2) + ' Па') +
+        (r.same ? '. С водой сравниваем остальные жидкости.'
+                : '. Чтобы сдвигать так же быстро, тянуть надо в ' + r.n + ' раз ' + r.word + ', чем воду.') +
+        ' Профиль снят со счёта: слой, который не разгоняется, получает одинаковые силы на верхнюю и нижнюю грани.';
+    }
+    if (st.tab === 'razgon') {
+      var T = H_SLOJ * H_SLOJ / nu, s = st.sl;
+      var t1 = st.slT1 != null ? 'Профиль подошёл к прямой ближе процента скорости пластины за ' + A(sig(st.slT1 * T, 2) + ' с') + '. '
+                               : 'Слои подхватываются сверху вниз: ускорение слоя пропорционально отличию его скорости от среднего по соседям. ';
+      var t50 = st.slTau50 != null ? 'Нижняя пластина получила половину установившейся силы через ' + sig(st.slTau50 * T, 2) + ' с. ' : '';
+      return fl.label + ', ' + tex('\\nu = \\eta/\\rho') + ' = ' + sig(nu, 2) + ' м²/с, масштаб ' + tex('h^2/\\nu') + ' = ' +
+        A(sig(T, 2) + ' с') + '. ' + t1 + t50 +
+        'Силу задаёт ' + tex('\\eta') + ', время задаёт ' + tex('\\nu') + ': у мёда тянуть тяжелее, а устанавливается быстрее.';
+    }
+    var F = trubaFiz();
+    var lam = F.Re < RE_POROG
+      ? 'Re = ' + A(num(F.Re, 0)) + ' ниже двух тысяч: течение ламинарное, и формула главы годится.'
+      : 'Re = <span class="neg">' + num(F.Re, 0) + '</span> выше двух тысяч: в длинной трубе течение станет турбулентным, и парабола неверна.';
+    if (F.Re < 100) lam = 'Re = ' + A(sig(F.Re, 2)) + ': течение ламинарное, формула главы годится.';
+    return fl.label + ' в трубе ' + (st.wide ? 4 : 2) + ' см, ' + fmtDP(st.dPdl) + ' Па/м. Параболу даёт перепад: сила давления на соосный цилиндр растёт как ' +
+      tex('r^2') + ', вязкая сила на его бок как ' + tex('r\\,\\partial v/\\partial r') + '; прилипание задаёт только ноль у стенки. ' +
+      'Расход кольцами ' + A(sig(F.Q * 6e4, 3) + ' л/мин') + ', по формуле ' + tex('\\pi R^4 \\Delta P/(8\\eta l)') + ' ' + sig(F.Qf * 6e4, 3) + '. ' + lam;
+  }
+
+  if (NED13) return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Материал:">
+          ${MATERIALY.map(function (m, i) { return html`
+            <${C.Btn} key=${m.id} active=${st.mi === i} onClick=${function () { vybratMaterial(i); }}>${m.label}<//>`; })}
+        <//>
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${nagretZanovo}>Нагреть заново<//>
+          <${C.Btn} disabled=${st.frFin} onClick=${pusk}>${st.run && !st.frFin ? 'Пауза' : 'Пуск'}<//>
+        <//>
+      </div>
+      <${Scena} key="front" W=${1000} H=${420} step=${step} draw=${draw} />
+      <${C.Status} html=${slovaFront()} />
+    </div>`;
+
+  var vk = PO_ID[ui.tab];
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group} label="Вкладка:">
+          ${VKLADKI.map(function (v) { return html`
+            <${C.Btn} key=${v.id} active=${ui.tab === v.id} onClick=${function () { vkladka(v.id); }}>${v.label}<//>`; })}
+        <//>
+        <${C.Group} label="Жидкость:">
+          ${FLUIDS.map(function (f, i) { return html`
+            <${C.Btn} key=${f.id} active=${ui.fi === i} onClick=${function () { pick(i); }}>${f.label}<//>`; })}
+        <//>
+        ${ui.tab === 'plastiny' ? html`
+          <${C.Slider} label="Скорость сдвига:" min=${0.4} max=${4} step=${0.1}
+                       value=${ui.rate} onChange=${setRate}
+                       display=${num(ui.rate, 1) + ' с⁻¹'} />` : null}
+        ${ui.tab === 'truba' ? html`
+          <${C.Slider} label="Перепад:" min=${0.4} max=${40} log=${true}
+                       value=${ui.dPdl} onChange=${setDP}
+                       display=${fmtDP(ui.dPdl) + ' Па/м'} />` : null}
+        ${ui.tab === 'truba' ? html`
+          <${C.Group}>
+            <${C.Btn} active=${!ui.wide} onClick=${function () { shire(false); }}>d = 2 см<//>
+            <${C.Btn} active=${ui.wide} onClick=${function () { shire(true); }}>вдвое шире<//>
+          <//>` : null}
+        ${ui.tab !== 'plastiny' ? html`
+          <${C.Group}>
+            <${C.Btn} action=${true} onClick=${snova}>${ui.tab === 'razgon' ? 'Тронуть заново' : 'Пустить заново'}<//>
+            <${C.Btn} onClick=${pusk}>${ui.run ? 'Пауза' : 'Пуск'}<//>
+          <//>` : null}
+      </div>
+      <${Scena} key=${ui.tab} W=${vk.W} H=${vk.H} step=${step} draw=${draw} />
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Vyazkost);
+</script>
+</body>
+</html>

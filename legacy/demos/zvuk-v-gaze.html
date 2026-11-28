@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Звук в газе: адиабата или изотерма</title>
+<link rel="stylesheet" href="../shared/demo.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- возврат к неделе: виден только вне iframe колоды -->
+<a class="demo-back" href="/week-09/">&larr; Неделя 09</a>
+<script>if (window.self !== window.top) document.querySelector('.demo-back').hidden = true;</script>
+
+<script src="../shared/vendor/react.production.min.js"></script>
+<script src="../shared/vendor/react-dom.production.min.js"></script>
+<script src="../shared/vendor/htm.js"></script>
+<script src="../shared/demo-core.js"></script>
+<script src="../shared/analytics.js?demo=zvuk-v-gaze"></script>
+<script>
+'use strict';
+var C = window.DemoCore, html = C.html;
+var useRef = React.useRef, useState = React.useState;
+
+/* ══════════════════ физика ══════════════════
+
+   Шаг «Звук» четвёртого акта девятой недели (бриф
+   briefs/proizvodstvo09.md, раздел «Демки», исполнитель 3; решения автора
+   briefs/lekciya09_resheniya_ramki.md, п. 4: адиабата и звук, вариант (б);
+   рамка §4, шаг «Звук», §6, демка 2 очереди; карточка 4 описи
+   briefs/lekciya09_demki_minuty.md §1.4; схема счёта
+   briefs/lekciya09_skripty/zvuk09.py, часть Б). Счёт взят у цепочки грузов
+   восьмой недели (platform/demos/cepochka-gruzov.html, она не тронута):
+   пружину заменяет закон состояния ячейки газа.
+
+   СТОЛБ ГАЗА. Труба длиной L = 1 м с воздухом при 20 °C и 1 атм нарезана
+   на N одинаковых ячеек длиной a = L/N. Узел между ячейками несёт массу
+   ρ₀Sa (газ двух половинок соседних ячеек); на узел давит разность
+   давлений соседних ячеек, второй закон для узла i:
+
+       ρ₀a ξ̈_i = p_{i−1} − p_i      (на единицу площади сечения),
+
+   ξ_i смещение узла от места покоя ia. Левый узел есть поршень, он с
+   первого мгновения едет с постоянной скоростью u; правый конец трубы
+   закрыт. Ячейка i между узлами i и i+1 имеет длину Δx_i = a + ξ_{i+1} − ξ_i
+   и плотность ρ₀a/Δx_i. Давление ячейки даёт уравнение Клапейрона,
+   p = ρRT/M, а температуру ячейки задаёт её закон:
+
+       без теплообмена   T = T₀(a/Δx)^(γ−1)   (адиабата: первое начало при
+                                                δQ = 0, TV^(γ−1) постоянно),
+       с выравниванием   T = T₀                (тепло сжатия успевает уйти).
+
+   Отсюда p = p₀(a/Δx)^γ у первой и p = p₀a/Δx у второй. Других законов в
+   счёте нет, формулы скорости звука в нём тоже нет: скорость фронта, скачок
+   давления и нагрев выходят из движения узлов. Две трубы считаются рядом,
+   одним шагом, с одного толчка.
+
+   СЧЁТ. Скоростной Верле, как у цепочки восьмой, шаг h = a/(4c_Л), где
+   c_Л = √(γp₀/ρ₀) берётся только для выбора шага (схема устойчива при
+   h < a/c). Время идёт целыми шагами, остаток кадра копится: числа не
+   зависят от частоты кадров. Опыт идёт до 0,97·L/c_Л, пока фронт верхней
+   трубы не дошёл до закрытого конца и отражения нет.
+
+   ПОЧЕМУ u = 1 см/с. Сильный толчок сам ускоряет фронт: у газа сжатая
+   часть упруже, и при u = 1 м/с фронт идёт быстрее звука на (γ+1)u/4,
+   около 0,6 м/с (слабая ударная волна). При 1 см/с поправка 0,006 м/с,
+   и счёт даёт скорость малого возмущения, то есть звука. Давление за
+   фронтом выше на 4,1 Па, это громкость около 106 дБ.
+
+   ДАТЧИКИ. Стоят под слоями газа на четверти и трёх четвертях длины.
+   Треугольник датчика загорается, когда слой набрал половину скорости
+   поршня. Время прихода фронта датчик пишет по середине фронта: слой за
+   фронтом едет со скоростью u, и момент, с которого он ехал бы, если бы
+   тронулся сразу, есть τ_i = t − ξ_i/u. Это центр тяжести импульса
+   ускорения слоя; так меряют время пролёта по форме сигнала. За фронтом
+   слой ещё покачивается (рябь от конечных ячеек), поэтому τ_i
+   усредняется по ходу, начиная со сто первого шага после порога; скорость
+   фронта (i₂ − i₁)a/(τ₂ − τ₁) показывается, когда у второго датчика в
+   среднем набралось пятьдесят шагов. Порог «половина скорости поршня» для
+   скорости не взят: фронт столба из конечных ячеек несимметричен
+   (короткие волны ячейки пропускают медленнее), его середина по порогу
+   отстаёт на долю порядка N^(−2/3), при 800 ячейках на 0,13 % (342,79 и
+   289,71 м/с против 343,23 и 290,09), а центр тяжести идёт со скоростью
+   длинных волн. По одному мгновению, без среднего, τ даёт 343,22 и
+   290,04: рябь сдвигает второе на 0,05 м/с.
+
+   ПОКАЗАНИЯ. Скачок давления и нагрев за фронтом есть средние по ячейкам
+   от десятой до пятой части длины, когда фронт прошёл первый датчик.
+   Только для подписей и сверки стоят √(γp₀/ρ₀), √(p₀/ρ₀), ρ₀cu (тот же
+   ρcv, что у стержня и гидроудара восьмой недели), (γ−1)T₀u/c и опыт,
+   343 м/с, как в главе. Линия «опыт» на графике идёт со скоростью 343 м/с.
+
+   ПРОВЕРКА (23.10; python briefs/lekciya09_skripty/zvuk09_demka.py, та же
+   схема на numpy, и прогон этого кода в node, числа совпали до последнего
+   печатного знака; hcheck на порту 49944: __demoTick, чтение
+   __demoState, __demoCheck; отчёт briefs/proizvodstvo09_demki-3_REPORT.md).
+   Воздух при 20 °C и 1 атм, M = 28,965 г/моль: ρ₀ = 1,2041 кг/м³,
+   √(γp₀/ρ₀) = 343,233 м/с, √(p₀/ρ₀) = 290,085 м/с (zvuk09.py: 343,2 и
+   290,1; глава zvuk-v-gaze с 28,97 г/моль: 343,20 и 290,06, на экране то
+   же 343,2 и 290,1). Фронт по датчикам при
+   800 ячейках 343,239 и 290,101 м/с; при 1600 ячейках 343,240 и 290,086,
+   при шаге a/(16c_Л) 343,240 и 290,084. Остаток +0,006 и +0,005 м/с есть
+   поправка сильного толчка (γ+1)u/4 и u/2. Скачок давления 4,1329 и
+   3,4929 Па против ρ₀cu = 4,1329 и 3,4929; нагрев 3,4163 мК против
+   (γ−1)T₀u/c = 3,4163, у изотермы 0. Первое начало: работа поршня без
+   теплообмена равна приросту кинетической и внутренней энергии газа до
+   6·10⁻¹⁰ Дж/м² при работе 2,86 Дж/м² (кинетическая 5,8·10⁻⁵); у
+   изотермы внутренняя энергия не меняется (7·10⁻¹² Дж/м²), и вся работа
+   сверх кинетической уходит теплом. Поршень за опыт проходит 28,26 мкм,
+   конец опыта 2,826 мс. При u = 1 м/с фронт 343,83 и 290,60 м/с против
+   c + (γ+1)u/4 = 343,83 и c + u/2 = 290,59, скачок 414,0 и 349,9 Па, нагрев
+   0,342 К (числа zvuk09.py: 414,5 Па и 0,342 К). Отрицательный контроль:
+   масса узла вчетверо даёт фронт вдвое медленнее (171,623 м/с, отношение
+   0,5000); показатель закона 5/3 вместо 1,4 даёт 374,50 м/с против
+   √(5p₀/3ρ₀) = 374,50, а показатель 1,4 у нижней трубы даёт те же
+   343,239, что у верхней: скорость выходит из закона ячейки, а не из
+   формулы. */
+
+/* ── чистая физика ──────────────────────────────────────────────
+   Отсюда до пометки «конец чистой физики» код не знает о браузере и
+   прогоняется в node. */
+
+var R = 8.314462618;                 /* Дж/(моль·К) */
+var P0 = 101325, T0 = 293.15;        /* 1 атм, 20 °C */
+var MOL = 0.028965, GAMMA = 1.4;     /* воздух: кг/моль; γ двухатомного газа */
+var L = 1, U = 0.01;                 /* труба 1 м, поршень 1 см/с */
+var N0 = 800;                        /* ячеек */
+var DOLYA_SHAGA = 4;                 /* шаг a/(4c_Л) */
+var TKON = 0.97;                     /* опыт до 0,97·L/c_Л */
+var ZADERZHKA = 100, OKNO = 50;      /* окно датчика: с какого шага после порога и сколько шагов до показания */
+var C_OPYT = 343;                    /* мерят, м/с: число главы */
+var RHO0 = P0 * MOL / (R * T0);      /* 1,2041 кг/м³ */
+/* только для шага, подписей и сверки */
+var C_LAPLAS = Math.sqrt(GAMMA * P0 / RHO0);    /* 343,23 м/с */
+var C_NYUTON = Math.sqrt(P0 / RHO0);            /* 290,09 м/с */
+var ZAKONY = [
+  { id: 'adiabata', g: GAMMA },      /* без теплообмена */
+  { id: 'izoterma', g: 1 }           /* с выравниванием температуры */
+];
+
+/* Труба с законом ячейки p = p₀(a/Δx)^g; massa — множитель массы узла,
+   только для отрицательного контроля. */
+function truba(z, g, N, massa) {
+  var a = L / N;
+  var m = {
+    id: z.id, g: g, N: N, a: a, mu: RHO0 * a * (massa || 1),
+    xi: new Float64Array(N + 1), v: new Float64Array(N + 1), A: new Float64Array(N + 1),
+    p: new Float64Array(N), T: new Float64Array(N),
+    i1: N >> 2, i2: (3 * N) >> 2, t1: null, t2: null, W: 0,
+    k: [0, 0], s: [0, 0], n: [0, 0]          /* окна датчиков: шаги после порога, сумма τ, число */
+  };
+  sostoyanie(m);
+  return m;
+}
+
+/* Давление и температура ячеек по закону ячейки, ускорения узлов. */
+function sostoyanie(m) {
+  var N = m.N, a = m.a, xi = m.xi, p = m.p, T = m.T, A = m.A, g = m.g, i, r;
+  for (i = 0; i < N; i++) {
+    r = a / (a + xi[i + 1] - xi[i]);                 /* ρ/ρ₀ */
+    T[i] = g === 1 ? T0 : T0 * Math.pow(r, g - 1);   /* закон ячейки */
+    p[i] = P0 * r * T[i] / T0;                       /* p = ρRT/M */
+  }
+  for (i = 1; i < N; i++) A[i] = (p[i - 1] - p[i]) / m.mu;
+}
+
+function dolya(v, vp, thr) {
+  var f = v - vp > 0 ? (v - thr) / (v - vp) : 0;
+  return f < 0 ? 0 : f > 1 ? 1 : f;
+}
+
+/* Один шаг трубы; t — время в конце шага. */
+function shagTruby(m, h, t) {
+  var N = m.N, xi = m.xi, v = m.v, A = m.A, i;
+  var v1p = v[m.i1], v2p = v[m.i2], p0p = m.p[0], x0p = xi[0];
+  for (i = 1; i < N; i++) { v[i] += 0.5 * h * A[i]; xi[i] += h * v[i]; }
+  xi[0] = U * t; v[0] = U;                         /* поршень задан движением */
+  sostoyanie(m);
+  for (i = 1; i < N; i++) v[i] += 0.5 * h * A[i];
+  m.W += 0.5 * (p0p + m.p[0]) * (xi[0] - x0p);     /* работа поршня трапециями */
+  var thr = 0.5 * U;
+  if (m.t1 == null && v[m.i1] >= thr) m.t1 = t - h * dolya(v[m.i1], v1p, thr);
+  if (m.t2 == null && v[m.i2] >= thr) m.t2 = t - h * dolya(v[m.i2], v2p, thr);
+  /* время прихода середины фронта τ = t − ξ/u, среднее по ходу после задержки */
+  [[m.t1, m.i1], [m.t2, m.i2]].forEach(function (d, j) {
+    if (d[0] != null && ++m.k[j] > ZADERZHKA) { m.s[j] += t - xi[d[1]] / U; m.n[j]++; }
+  });
+}
+
+/* Опыт: две трубы с одного толчка. q.g — показатели законов по id,
+   q.massa — множитель массы узла (оба только для отрицательного контроля). */
+function novyj(N, q) {
+  N = N || N0; q = q || {};
+  var a = L / N;
+  var o = { N: N, a: a, h: a / (DOLYA_SHAGA * C_LAPLAS), n: 0, t: 0, nakop: 0, done: false,
+            tk: TKON * L / C_LAPLAS, truby: [] };
+  ZAKONY.forEach(function (z) {
+    var g = q.g && q.g[z.id] != null ? q.g[z.id] : z.g;
+    o.truby.push(truba(z, g, N, q.massa));
+  });
+  return o;
+}
+
+function shag(o) {
+  if (o.done) return;
+  o.n++; o.t = o.n * o.h;
+  for (var k = 0; k < o.truby.length; k++) shagTruby(o.truby[k], o.h, o.t);
+  if (o.t >= o.tk - 0.5 * o.h) o.done = true;
+}
+
+/* Продвинуть на dt модельного времени целыми шагами; остаток копится. */
+function prodvinut(o, dt) {
+  o.nakop += dt;
+  var n = Math.floor(o.nakop / o.h + 1e-9);
+  if (n > 20000) n = 20000;
+  for (var i = 0; i < n && !o.done; i++) shag(o);
+  o.nakop -= n * o.h;
+  if (o.nakop < 0 || o.done) o.nakop = 0;
+}
+
+/* Показания одной трубы. */
+function svodkaTruby(m, t) {
+  var N = m.N, a = m.a, i, j;
+  var tau1 = m.n[0] ? m.s[0] / m.n[0] : null, tau2 = m.n[1] ? m.s[1] / m.n[1] : null;
+  var gotovo = m.n[1] >= OKNO;
+  var cMgn = m.t1 != null && m.t2 != null ? (m.i2 - m.i1) * a / ((t - m.xi[m.i2] / U) - (t - m.xi[m.i1] / U)) : null;
+  var j0 = Math.floor(N / 10), j1 = Math.floor(N / 5), dp = 0, dT = 0;
+  for (j = j0; j < j1; j++) { dp += m.p[j] - P0; dT += m.T[j] - T0; }
+  dp /= (j1 - j0); dT /= (j1 - j0);
+  var K = 0, U_ = 0;
+  for (i = 1; i < N; i++) K += 0.5 * m.mu * m.v[i] * m.v[i];
+  /* внутренняя энергия воздуха pV/(γ−1) сверх начальной, на единицу площади */
+  for (j = 0; j < N; j++) U_ += (m.p[j] * (a + m.xi[j + 1] - m.xi[j]) - P0 * a) / (GAMMA - 1);
+  var c = Math.sqrt(m.g * P0 / (m.mu / a));      /* для сверки: √(g p₀/ρ₀), ρ₀ = масса узла / a */
+  return {
+    law: m.id, g: m.g,
+    cMeasured: gotovo ? (m.i2 - m.i1) * a / (tau2 - tau1) : null,
+    cInstant: cMgn,                                /* τ по одному мгновению, без среднего */
+    cHalf: m.t1 != null && m.t2 != null ? (m.i2 - m.i1) * a / (m.t2 - m.t1) : null,   /* по порогу */
+    cTheory: c,
+    sensors: [m.i1, m.i2], sensorHalf: [m.t1, m.t2], sensorTau: [tau1, tau2], ready: gotovo,
+    dp: m.t1 != null ? dp : null, dpTheory: RHO0 * c * U,
+    dT: m.t1 != null ? dT : null, dTTheory: (m.g - 1) * T0 * U / c,
+    work: m.W, kinetic: K, dU: U_, heat: m.W - K - U_
+  };
+}
+
+function svodka(o) {
+  var s = {
+    gas: 'vozduh', T0: T0, p0: P0, rho0: RHO0, M: MOL, gamma: GAMMA, u: U, L: L,
+    N: o.N, a: o.a, h: o.h, cLaplace: C_LAPLAS, cNewton: C_NYUTON, cExp: C_OPYT,
+    t: o.t, tEnd: o.tk, tOverT: o.t * C_LAPLAS / L, done: o.done
+  };
+  o.truby.forEach(function (m) { s[m.id] = svodkaTruby(m, o.t); });
+  s.cMeasured = [s.adiabata.cMeasured, s.izoterma.cMeasured];
+  return s;
+}
+
+/* Прогон без кадров до tOver·L/c_Л (не дальше конца опыта). */
+function progonModel(o, tOver) {
+  var tk = Math.min(o.tk, (tOver == null ? TKON : tOver) * L / C_LAPLAS), g = 0;
+  while (!o.done && o.t < tk - 0.5 * o.h && g++ < 1e7) shag(o);
+  return o;
+}
+function progon(N, tOver, q) {
+  var o = novyj(N, q);
+  if (q && q.tk) o.tk = q.tk * L / C_LAPLAS;
+  return svodka(progonModel(o, tOver == null ? o.tk * C_LAPLAS / L : tOver));
+}
+/* ── конец чистой физики ── */
+
+/* Русская запятая и настоящий минус; крохи печатаются нулём. */
+function num(v, d) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0;
+  return v.toFixed(d).replace('.', ',').replace('-', '−');
+}
+function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
+
+/* ══════════════════ сцена ══════════════════
+
+   Две трубы друг под другом: сверху ячейки без теплообмена, снизу с
+   выравниванием температуры. У каждой два ряда: верхний окрашен избытком
+   давления, нижний нагревом, оба в масштабе верхней трубы (ρ₀c_Лu и
+   (γ−1)T₀u/c_Л). Тонкие вертикальные метки через двадцатую часть длины
+   сидят на слоях газа и едут вместе с ними; смещения увеличены, иначе
+   28 мкм пути поршня не видно. Внизу избыток давления вдоль трубы у обеих
+   труб и линия, которая идёт со скоростью, которую мерят. Справа
+   показания. */
+
+var W = 1000, HGT = 450;
+var X0 = 100, X1 = 680, PXM = X1 - X0;     /* труба в покое, пикселей на метр */
+var RH = 24;                              /* высота ряда */
+var TY = [70, 176];                       /* верх труб */
+var GY0 = 300, GY1 = 410, GMAX = 6;       /* график давления, Па */
+var RXL = 830, RXR = 990;
+var Z = 2000, ZT = '2000';                /* замедление времени */
+var KU = 2000, KUT = '2000';              /* увеличение смещений */
+var CP = '77,182,198';                    /* давление */
+var CT = '224,138,82';                    /* температура */
+var ZAGOLOVKI = ['Без теплообмена: ячейка сжимается по адиабате',
+                 'С выравниванием температуры: ячейка остаётся при 20 °C'];
+
+var pokaz = {};
+window.__demoState = pokaz;
+
+function Zvuk() {
+  var ref0 = useRef(null);
+  if (!ref0.current) ref0.current = { o: novyj(), run: true, klyuch: '' };
+  var S_ = ref0.current;
+  var pair = useState({ run: true, klyuch: '' });
+  var ui = pair[0], setUi = pair[1];
+
+  function faza(s) {
+    if (s.done) return 3;
+    if (s.adiabata.cMeasured != null && s.izoterma.cMeasured != null) return 2;
+    if (s.adiabata.dp != null) return 1;
+    return 0;
+  }
+  function snyat() {
+    var s = svodka(S_.o);
+    Object.assign(pokaz, s, { running: S_.run && !s.done });
+    var kl = [faza(s), S_.run, num(s.adiabata.cMeasured, 1), num(s.izoterma.cMeasured, 1)].join(';');
+    if (kl !== S_.klyuch) {
+      S_.klyuch = kl;
+      setUi(function (u) { return Object.assign({}, u, { klyuch: kl }); });
+    }
+  }
+  if (pokaz.N == null) Object.assign(pokaz, svodka(S_.o), { running: S_.run });
+
+  function step(dt) {
+    if (!S_.run || S_.o.done) return;
+    prodvinut(S_.o, dt / Z);
+    snyat();
+  }
+
+  /* ── примитивы ── */
+
+  function strelka(ctx, xa, xb, y, color) {
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 3; ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.moveTo(xa, y); ctx.lineTo(xb - 10, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(xb, y); ctx.lineTo(xb - 13, y - 7); ctx.lineTo(xb - 13, y + 7); ctx.closePath(); ctx.fill();
+  }
+  function punktir(ctx, x0, y0, x1, y1, color, w) {
+    ctx.save(); ctx.setLineDash([5, 5]); ctx.strokeStyle = color; ctx.lineWidth = w || 1.4;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); ctx.restore();
+  }
+
+  /* ── труба ── */
+
+  function truba_(ctx, m, k, ink, mut, acc) {
+    var N = m.N, a = m.a, y0 = TY[k], HH = 2 * RH + 2, i;
+    var dpRef = RHO0 * C_LAPLAS * U, dTRef = (GAMMA - 1) * T0 * U / C_LAPLAS;
+    function X(i) { return X0 + PXM * (i * a + KU * m.xi[i]); }
+    C.label(ctx, 30, y0 - 10, ZAGOLOVKI[k], 17, 'rgb(' + ink + ')', 'left');
+    var xp = X(0);
+    ctx.fillStyle = 'rgba(' + ink + ',.06)';
+    ctx.fillRect(xp, y0, X1 - xp, HH);
+    for (i = 0; i < N; i++) {
+      var xa = X(i), w = X(i + 1) - xa + 0.6;
+      var sp = (m.p[i] - P0) / dpRef, st = (m.T[i] - T0) / dTRef;
+      if (sp > 0.02) { ctx.fillStyle = 'rgba(' + CP + ',' + (0.85 * Math.min(sp, 1)).toFixed(3) + ')'; ctx.fillRect(xa, y0, w, RH); }
+      if (st > 0.02) { ctx.fillStyle = 'rgba(' + CT + ',' + (0.85 * Math.min(st, 1)).toFixed(3) + ')'; ctx.fillRect(xa, y0 + RH + 2, w, RH); }
+    }
+    /* слои газа через двадцатую часть длины */
+    ctx.lineWidth = 1.2;
+    for (var q = 1; q < 20; q++) {
+      var iq = Math.round(q * N / 20), xq = X(iq);
+      ctx.strokeStyle = 'rgba(' + ink + ',' + (m.v[iq] > 0.05 * U ? '.75' : '.3') + ')';
+      ctx.beginPath(); ctx.moveTo(xq, y0); ctx.lineTo(xq, y0 + HH); ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(' + ink + ',.55)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(xp, y0, X1 - xp, HH);
+    /* закрытый конец и поршень со штоком */
+    ctx.fillStyle = 'rgba(' + ink + ',.7)';
+    ctx.fillRect(X1, y0 - 5, 6, HH + 10);
+    ctx.fillStyle = 'rgba(' + ink + ',.55)';
+    ctx.fillRect(xp - 10, y0 - 5, 10, HH + 10);
+    strelka(ctx, 30, xp - 11, y0 + RH + 1, 'rgb(' + acc + ')');
+    C.label(ctx, 58, y0 + RH - 9, '1 см/с', 17, 'rgb(' + acc + ')');
+    /* ряды */
+    C.label(ctx, X1 + 14, y0 + RH - 6, 'P', 17, 'rgb(' + CP + ')', 'left');
+    C.label(ctx, X1 + 14, y0 + 2 * RH - 4, 'T', 17, 'rgb(' + CT + ')', 'left');
+    /* датчики стоят в лаборатории, под слоями N/4 и 3N/4 в покое */
+    [[m.i1, m.t1], [m.i2, m.t2]].forEach(function (d, j) {
+      var xd = X0 + d[0] * a * PXM, y = y0 + HH + 6;
+      ctx.beginPath(); ctx.moveTo(xd, y); ctx.lineTo(xd - 7, y + 12); ctx.lineTo(xd + 7, y + 12); ctx.closePath();
+      if (d[1] != null) { ctx.fillStyle = 'rgb(' + CP + ')'; ctx.fill(); }
+      else { ctx.strokeStyle = 'rgba(' + ink + ',.7)'; ctx.lineWidth = 1.5; ctx.stroke(); }
+      if (k === 1) C.label(ctx, xd, y + 32, 'датчик ' + (j + 1), 17, 'rgba(' + mut + ',.95)');
+    });
+  }
+
+  /* ── давление вдоль трубы ── */
+
+  function grafik(ctx, o, ink, mut) {
+    var mutS = 'rgba(' + mut + ',.95)', i;
+    function Y(dp) { return GY1 - clamp(dp / GMAX, -0.05, 1.05) * (GY1 - GY0); }
+    C.label(ctx, 30, GY0 - 12, 'избыток давления вдоль трубы, Па', 17, mutS, 'left');
+    ctx.lineWidth = 1;
+    [2, 4, 6].forEach(function (y) {
+      ctx.strokeStyle = 'rgba(' + ink + ',.10)';
+      ctx.beginPath(); ctx.moveTo(X0, Y(y)); ctx.lineTo(X1, Y(y)); ctx.stroke();
+      C.label(ctx, X0 - 8, Y(y) + 6, String(y), 17, mutS, 'right');
+    });
+    ctx.strokeStyle = 'rgba(' + mut + ',.7)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(X0, GY0); ctx.lineTo(X0, GY1); ctx.lineTo(X1, GY1); ctx.stroke();
+    C.label(ctx, X0 - 8, GY1 + 6, '0', 17, mutS, 'right');
+    C.label(ctx, (X0 + X1) / 2, GY1 + 24, '0,5', 17, mutS);
+    C.label(ctx, X1, GY1 + 24, '1 м', 17, mutS, 'right');
+    /* линия опыта */
+    var xo = X0 + PXM * Math.min(C_OPYT * o.t, L);
+    if (o.t > 0) {
+      punktir(ctx, xo, GY0, xo, GY1, 'rgba(' + ink + ',.6)', 1.4);
+      var lev = xo > X0 + 160;
+      C.label(ctx, lev ? xo - 6 : xo + 6, GY0 + 12, 'опыт, ' + C_OPYT + ' м/с', 17, mutS, lev ? 'right' : 'left');
+    }
+    /* обе трубы: сплошная без теплообмена, пунктир с выравниванием */
+    o.truby.forEach(function (m, k) {
+      var N = m.N, a = m.a;
+      ctx.save();
+      if (k === 1) ctx.setLineDash([7, 5]);
+      ctx.strokeStyle = 'rgb(' + CP + ')'; ctx.lineWidth = k === 0 ? 2.6 : 2.2; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (i = 0; i < N; i++) {
+        var x = X0 + (i + 0.5) * a * PXM, y = Y(m.p[i] - P0);
+        if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      }
+      ctx.stroke(); ctx.restore();
+    });
+    /* легенда */
+    var lx = RXL - 110, ly = GY1 - 22;
+    ctx.strokeStyle = 'rgb(' + CP + ')'; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(lx, ly - 5); ctx.lineTo(lx + 28, ly - 5); ctx.stroke();
+    C.label(ctx, lx + 38, ly, 'без теплообмена', 17, mutS, 'left');
+    ctx.save(); ctx.setLineDash([7, 5]); ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.moveTo(lx, ly + 21); ctx.lineTo(lx + 28, ly + 21); ctx.stroke(); ctx.restore();
+    C.label(ctx, lx + 38, ly + 26, 'с выравниванием', 17, mutS, 'left');
+  }
+
+  /* ── показания ── */
+
+  function pokazaniya(ctx, s, ink, mut) {
+    var mutS = 'rgba(' + mut + ',.95)';
+    function pod(x, y, t) { C.label(ctx, x, y, t, 17, mutS, 'right'); }
+    [['adiabata', '√(γP/ρ) = '], ['izoterma', '√(P/ρ) = ']].forEach(function (z, k) {
+      var r = s[z[0]], y0 = TY[k];
+      C.readout(ctx, RXL, y0 + 6, 'ФРОНТ, м/с', num(r.cMeasured, 1), 'rgb(' + ink + ')');
+      pod(RXL, y0 + 68, z[1] + num(r.cTheory, 1));
+      C.readout(ctx, RXR, y0 + 6, 'СКАЧОК P, Па', num(r.dp, 2), 'rgb(' + CP + ')');
+      pod(RXR, y0 + 68, 'ρcu = ' + num(r.dpTheory, 2));
+    });
+    var a = s.adiabata;
+    C.readout(ctx, RXL, GY0 - 6, 'НАГРЕВ, мК', a.dT != null ? num(a.dT * 1e3, 2) : '—', 'rgb(' + CT + ')');
+    pod(RXL, GY0 + 56, '(γ−1)Tu/c = ' + num(a.dTTheory * 1e3, 2));
+    C.readout(ctx, RXR, GY0 - 6, 'ВРЕМЯ, мс', num(s.t * 1e3, 3), 'rgb(' + ink + ')');
+    pod(RXR, GY0 + 56, 'метр за ' + num(L / C_LAPLAS * 1e3, 2));
+  }
+
+  function draw(ctx) {
+    var tone = C.tones(ctx), ink = tone.ink, mut = tone.muted, acc = tone.accent;
+    var o = S_.o, s = svodka(o), mutS = 'rgba(' + mut + ',.95)';
+    C.label(ctx, 30, 24, 't = ' + num(o.t * 1e3, 3) + ' мс', 17, 'rgb(' + ink + ')', 'left');
+    C.label(ctx, W - 10, 24, 'время замедлено в ' + ZT + ' раз, смещения увеличены в ' + KUT + ' раз', 17, mutS, 'right');
+    o.truby.forEach(function (m, k) { truba_(ctx, m, k, ink, mut, acc); });
+    grafik(ctx, o, ink, mut);
+    pokazaniya(ctx, s, ink, mut);
+    ctx.textAlign = 'center';
+  }
+
+  var ref = C.useStage(W, HGT, step, draw);
+
+  /* ── ручки ── */
+
+  function zagruzit(run) {
+    S_.o = novyj(); S_.run = run; S_.klyuch = '';
+    snyat();
+    setUi(function (u) { return Object.assign({}, u, { run: run, klyuch: S_.klyuch }); });
+  }
+  function pusk() {
+    if (S_.o.done) { zagruzit(true); return; }
+    S_.run = !S_.run; snyat();
+    setUi(function (u) { return Object.assign({}, u, { run: S_.run }); });
+  }
+  function sbros() { zagruzit(true); }
+
+  /* Для автопроверки: __demoSet({ run }) ставит опыт заново;
+     __demoAction('pusk' | 'sbros') жмёт кнопку; __demoCheck(N, tOver, q)
+     — прогон без кадров до tOver·L/c_Л, живую сцену не трогает (q.g — показатели
+     законов по id, q.massa — множитель массы узла, q.tk — свой конец опыта);
+     __demoModel — куски счёта для отрицательного контроля. */
+  window.__demoSet = function (q) {
+    q = q || {};
+    zagruzit(q.run == null ? true : !!q.run);
+    return pokaz;
+  };
+  window.__demoAction = function (name) {
+    ({ pusk: pusk, sbros: sbros })[name]();
+    return pokaz;
+  };
+  window.__demoCheck = progon;
+  window.__demoModel = { ZAKONY: ZAKONY, novyj: novyj, shag: shag, prodvinut: prodvinut,
+                         progonModel: progonModel, svodka: svodka };
+
+  /* ── строка показаний ── */
+
+  function slova() {
+    var A = function (x) { return '<span class="accent">' + x + '</span>'; };
+    var s = svodka(S_.o), f = faza(s), a = s.adiabata, b = s.izoterma;
+    var ms = function (t) { return num(t * 1e3, 2) + ' мс'; };
+    if (f === 0)
+      return 'Поршень слева толкает воздух со скоростью 1 см/с. Обе трубы нарезаны на ' + s.N + ' тонких ячеек. ' +
+        'Узел между ячейками движется по второму закону: на него давит разность давлений соседних ячеек. ' +
+        'Давление ячейки даёт уравнение Клапейрона и Менделеева, температуру даёт закон ячейки. В верхней трубе ячейка сжимается ' +
+        'без теплообмена и греется, в нижней тепло успевает уйти, и температура остаётся 20 °C. Формулы скорости звука в счёте нет.';
+    if (f === 1)
+      return 'Сжатие бежит по трубам фронтом, и в верхней трубе фронт впереди. За фронтом воздух едет со скоростью поршня, ' +
+        'давление выше на ' + A(num(a.dp, 2) + ' Па') + ' сверху и на ' + A(num(b.dp, 2) + ' Па') + ' снизу, ' +
+        'а в верхней трубе воздух ещё и теплее на ' + A(num(a.dT * 1e3, 1) + ' мК') + '. Рябь за фронтом идёт от ячеек: ' +
+        'у них конечная длина, и короткие волны отстают от длинных. Скорость фронта меряют два датчика: ' +
+        'каждый отмечает, когда до него дошла середина фронта.';
+    var txt = 'Датчики дают ' + A(num(a.cMeasured, 1) + ' м/с') + ' без теплообмена и ' + A(num(b.cMeasured, 1) + ' м/с') +
+      ' при выравнивании температуры. Это √(γP/ρ) и √(P/ρ): скорость c = √(K/ρ) с модулем газа γP или P. ' +
+      'Мерят 343 м/с, как в верхней трубе: за время, пока волна сжимает ячейку, тепло из неё уйти не успевает.';
+    if (f === 3)
+      txt = 'Опыт остановлен через ' + ms(s.t) + ', когда фронт верхней трубы подошёл к закрытому концу. ' + txt +
+        ' Кнопка «Пуск» начинает опыт заново.';
+    return txt;
+  }
+
+  return html`
+    <div class="demo">
+      <div class="controls">
+        <${C.Group}>
+          <${C.Btn} action=${true} onClick=${pusk}>${ui.run && !S_.o.done ? 'Пауза' : 'Пуск'}<//>
+          <${C.Btn} onClick=${sbros}>Сброс<//>
+        <//>
+      </div>
+      <canvas class="stage" ref=${ref}></canvas>
+      <${C.Status} html=${slova()} />
+    </div>`;
+}
+
+C.mount(Zvuk);
+</script>
+</body>
+</html>
